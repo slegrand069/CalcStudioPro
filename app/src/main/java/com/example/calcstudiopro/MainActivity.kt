@@ -58,13 +58,13 @@ fun CalculatorScreen() {
         }.getOrNull()
     }
 
-    fun formatNumber(number: Double): String {
-        val rounded = BigDecimal.valueOf(number)
+
+    fun formatExpressionNumber(number: Double): String {
+        return BigDecimal.valueOf(number)
             .setScale(10, java.math.RoundingMode.HALF_UP)
             .stripTrailingZeros()
-        return rounded.toPlainString()
+            .toPlainString()
     }
-
     fun toggleSign() {
         if (expression.isEmpty()) {
             expression = "−"
@@ -195,7 +195,7 @@ fun CalculatorScreen() {
             "STO/RCL" -> {
                 if (isShiftActive) {
                     // RCL : rappeler la mémoire dans l'expression
-                    expression += formatNumber(memoryValue)
+                    expression += formatExpressionNumber(memoryValue)
                     isShiftActive = false
                 } else {
                     // STO : mémoriser le résultat courant
@@ -491,7 +491,7 @@ fun CalculatorScreen() {
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     val resultText = result?.let {
-                        formatNumber(it)
+                        formatResult(it)
                     } ?: ""
 
                     val availableWidth = maxWidth.value
