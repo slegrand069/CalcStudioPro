@@ -15,7 +15,7 @@ import kotlin.math.atan
 
 class CalculatorEngine {
 
-    fun evaluate(expression: String): Double {
+    fun evaluate(expression: String, angleUnit: AngleUnit = AngleUnit.DEGREES): Double {
         val normalized = expression
             .replace("×", "*")
             .replace("÷", "/")
@@ -23,11 +23,14 @@ class CalculatorEngine {
             .replace(',', '.')
             .replace("π", "pi")
 
-        val parser = Parser(normalized)
+        val parser = Parser(normalized, angleUnit)
         return parser.parse()
     }
 
-    private class Parser(private val input: String) {
+    private class Parser(
+        private val input: String,
+        private val angleUnit: AngleUnit
+    ) {
         private var pos = 0
 
         fun parse(): Double {
@@ -197,10 +200,10 @@ class CalculatorEngine {
 
                     "exp" -> exp(argument)
 
-                    "sin" -> sin(Math.toRadians(argument))
-                    "cos" -> cos(Math.toRadians(argument))
+                    "sin" -> sin(angleUnit.toRadians(argument))
+                    "cos" -> cos(angleUnit.toRadians(argument))
                     "tan" -> {
-                        val radians = Math.toRadians(argument)
+                        val radians = angleUnit.toRadians(argument)
                         require(kotlin.math.abs(cos(radians)) > 1e-12) {
                             "Tangente indéfinie"
                         }
@@ -212,17 +215,17 @@ class CalculatorEngine {
                         require(argument in -1.0..1.0) {
                             "Arcsinus invalide"
                         }
-                        Math.toDegrees(asin(argument))
+                        angleUnit.fromRadians(asin(argument))
                     }
 
                     "acos" -> {
                         require(argument in -1.0..1.0) {
                             "Arccosinus invalide"
                         }
-                        Math.toDegrees(acos(argument))
+                        angleUnit.fromRadians(acos(argument))
                     }
 
-                    "atan" -> Math.toDegrees(atan(argument))
+                    "atan" -> angleUnit.fromRadians(atan(argument))
 
                     else -> throw IllegalArgumentException(
                         "Fonction inconnue"

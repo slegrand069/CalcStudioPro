@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.calcstudiopro.domain.AngleUnit
 import com.example.calcstudiopro.domain.CalculatorEngine
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import java.math.BigDecimal
@@ -51,10 +52,12 @@ fun CalculatorScreen() {
     var isScientific by remember { mutableStateOf(false) }
     var memoryValue by remember { mutableDoubleStateOf(0.0) }
 
-    val result = remember(expression) {
+    val angleUnit = if (isRadians) AngleUnit.RADIANS else AngleUnit.DEGREES
+
+    val result = remember(expression, angleUnit) {
         if (expression.isBlank()) null
         else runCatching {
-            engine.evaluate(expression)
+            engine.evaluate(expression, angleUnit)
         }.getOrNull()
     }
 
@@ -337,7 +340,7 @@ fun CalculatorScreen() {
                             expression
                         }
 
-                        val value = engine.evaluate(expressionToEvaluate)
+                        val value = engine.evaluate(expressionToEvaluate, angleUnit)
                         isRootIndexActive = false
                         errorMessage = null
 
