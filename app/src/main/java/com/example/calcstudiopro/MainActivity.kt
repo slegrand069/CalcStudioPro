@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -269,7 +270,19 @@ fun CalculatorScreen() {
                 }
             }
 
-            "ln", "Log", "Sin", "Cos", "Tan" -> {
+            "Sin", "Cos", "Tan" -> {
+                val function = when (key) {
+                    "Sin" -> if (isShiftActive) "asin" else "sin"
+                    "Cos" -> if (isShiftActive) "acos" else "cos"
+                    else -> if (isShiftActive) "atan" else "tan"
+                }
+                expression += "$function("
+                if (isShiftActive) {
+                    isShiftActive = false
+                }
+            }
+
+            "ln", "Log" -> {
                 if (isShiftActive) {
                     val start = findLastOperandStart(expression)
 
@@ -280,17 +293,13 @@ fun CalculatorScreen() {
                         expression = when (key) {
                             "ln" -> "$before" + "exp($operand)"
                             "Log" -> "$before" + "10^($operand)"
-                            "Sin" -> "$before" + "asin($operand)"
-                            "Cos" -> "$before" + "acos($operand)"
-                            "Tan" -> "$before" + "atan($operand)"
                             else -> expression
                         }
 
                         isShiftActive = false
                     }
                 } else {
-                    val function = key.lowercase()
-                    expression += "$function("
+                    expression += "${key.lowercase()}("
                 }
             }
 
@@ -482,6 +491,7 @@ fun CalculatorScreen() {
             ) {
                 Text(
                     text = expression.ifEmpty { "0" },
+                    modifier = Modifier.testTag("calculator-expression"),
                     fontSize = 22.sp,
                     color = colors.onSurfaceVariant,
                     maxLines = 2
@@ -507,6 +517,7 @@ fun CalculatorScreen() {
 
                     Text(
                         text = resultText,
+                        modifier = Modifier.testTag("calculator-result"),
                         fontSize = calculatedSize.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.onBackground,
@@ -584,7 +595,8 @@ fun CalculatorScreen() {
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(59.dp)
-                                    .clickable { onKey(key) },
+                                    .clickable { onKey(key) }
+                                    .testTag("calculator-key-$key"),
                                 shape = RoundedCornerShape(22.dp),
                                 color = backgroundColor,
                                 shadowElevation =
