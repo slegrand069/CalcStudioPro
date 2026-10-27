@@ -48,7 +48,6 @@ fun CalculatorScreen() {
     var expression by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isShiftActive by remember { mutableStateOf(false) }
-    var isRootIndexActive by remember { mutableStateOf(false) }
     var isRadians by remember { mutableStateOf(false) }
     var isScientific by remember { mutableStateOf(false) }
     var memoryValue by remember { mutableDoubleStateOf(0.0) }
@@ -102,78 +101,43 @@ fun CalculatorScreen() {
     }
 
 
-    fun findLastOperandStart(value: String): Int? {
-        if (value.isEmpty()) return null
+    fun endsWithOperand(value: String): Boolean =
+        value.lastOrNull()?.let { character ->
+            character.isDigit() || character in listOf(')', 'π', 'e', '%', '!')
+        } == true
 
-        // On ignore temporairement les opérateurs postfixés
-        // pour identifier l'opérande auquel ils s'appliquent.
-        var end = value.length
-        while (end > 0 && value[end - 1] in listOf('!', '%')) {
-            end--
+    fun appendExpressionToken(token: String) {
+        if (endsWithOperand(expression)) {
+            expression += "×"
         }
-        if (end == 0) return null
+        expression += token
+    }
 
-        var start: Int
+    fun canInsertPowArgumentSeparator(value: String): Boolean {
+        data class FunctionFrame(val name: String?, var hasSeparator: Boolean = false)
 
-        if (value[end - 1] == ')') {
-            // Recherche la parenthèse ouvrante correspondante.
-            var depth = 0
-            var index = end - 1
-            var openingIndex = -1
-
-            while (index >= 0) {
-                when (value[index]) {
-                    ')' -> depth++
-                    '(' -> {
-                        depth--
-                        if (depth == 0) {
-                            openingIndex = index
-                            break
-                        }
+        val frames = mutableListOf<FunctionFrame>()
+        value.forEachIndexed { index, character ->
+            when (character) {
+                '(' -> {
+                    var nameStart = index
+                    while (nameStart > 0 && value[nameStart - 1].isLetter()) {
+                        nameStart--
                     }
+                    val name = value.substring(nameStart, index)
+                        .takeIf { it.isNotEmpty() }
+                        ?.lowercase()
+                    frames += FunctionFrame(name)
                 }
-                index--
-            }
 
-            if (openingIndex == -1) return null
-            start = openingIndex
-
-            // Inclut le nom d'une fonction éventuelle : sin(...), ln(...).
-            var functionStart = start
-            while (functionStart > 0 && value[functionStart - 1].isLetter()) {
-                functionStart--
+                ')' -> if (frames.isNotEmpty()) frames.removeAt(frames.lastIndex)
+                ',' -> frames.lastOrNull()?.hasSeparator = true
             }
-            if (functionStart < start) {
-                start = functionStart
-            }
-        } else if (value[end - 1].isDigit() || value[end - 1] == '.') {
-            // Repère le début du dernier nombre.
-            start = end - 1
-            while (start > 0 &&
-                (value[start - 1].isDigit() || value[start - 1] == '.')
-            ) {
-                start--
-            }
-        } else if (value[end - 1] == 'π') {
-            start = end - 1
-        } else {
-            return null
         }
 
-        // Inclut un signe moins uniquement s'il est unaire.
-        if (start > 0 && value[start - 1] == '−') {
-            val signIndex = start - 1
-            val previous = signIndex - 1
-            if (previous < 0 ||
-                value[previous] in listOf('+', '−', '×', '÷', '(', '^')
-            ) {
-                start = signIndex
-            }
-        } else if (start == 0 && value[0] == '−') {
-            start = 0
-        }
-
-        return start
+        val activeFunction = frames.lastOrNull() ?: return false
+        return activeFunction.name == "pow" &&
+            !activeFunction.hasSeparator && endsWithOperand(value)
     }
 
     fun onKey(key: String) {
@@ -183,7 +147,6 @@ fun CalculatorScreen() {
         when (key) {
             "AC" -> {
                 expression = ""
-                isRootIndexActive = false
                 isShiftActive = false
             }
 
@@ -191,15 +154,12 @@ fun CalculatorScreen() {
                 if (expression.isNotEmpty()) {
                     expression = expression.dropLast(1)
                 }
-                if (isRootIndexActive && !expression.contains("^(1/")) {
-                    isRootIndexActive = false
-                }
             }
 
             "STO/RCL" -> {
                 if (isShiftActive) {
                     // RCL : rappeler la mémoire dans l'expression
-                    expression += formatExpressionNumber(memoryValue)
+                    appendExpressionToken(formatExpressionNumber(memoryValue))
                     isShiftActive = false
                 } else {
                     // STO : mémoriser le résultat courant
@@ -232,14 +192,8 @@ fun CalculatorScreen() {
 
             "x²" -> {
                 if (isShiftActive) {
-                    val start = findLastOperandStart(expression)
-
-                    if (start != null) {
-                        val before = expression.substring(0, start)
-                        val operand = expression.substring(start)
-                        expression = "$before($operand)^(0.5)"
-                        isShiftActive = false
-                    }
+                    appendExpressionToken("sqrt(")
+                    isShiftActive = false
                 } else {
                     val last = expression.lastOrNull()
 
@@ -250,21 +204,12 @@ fun CalculatorScreen() {
             }
 
             "xʸ" -> {
-                val last = expression.lastOrNull()
-
-                if (last?.isDigit() == true || last == ')' || last == '%') {
-                    if (isShiftActive) {
-                        val start = findLastOperandStart(expression)
-
-                        if (start != null) {
-                            val before = expression.substring(0, start)
-                            val operand = expression.substring(start)
-
-                            expression = "$before($operand)^(1/"
-                            isRootIndexActive = true
-                            isShiftActive = false
-                        }
-                    } else {
+                if (isShiftActive) {
+                    appendExpressionToken("pow(")
+                    isShiftActive = false
+                } else {
+                    val last = expression.lastOrNull()
+                    if (last?.isDigit() == true || last == ')' || last == '%') {
                         expression += "^"
                     }
                 }
@@ -276,33 +221,20 @@ fun CalculatorScreen() {
                     "Cos" -> if (isShiftActive) "acos" else "cos"
                     else -> if (isShiftActive) "atan" else "tan"
                 }
-                expression += "$function("
-                if (isShiftActive) {
-                    isShiftActive = false
-                }
+                appendExpressionToken("$function(")
+                if (isShiftActive) isShiftActive = false
             }
 
             "ln", "Log" -> {
-                if (isShiftActive) {
-                    val start = findLastOperandStart(expression)
-
-                    if (start != null) {
-                        val before = expression.substring(0, start)
-                        val operand = expression.substring(start)
-
-                        expression = when (key) {
-                            "ln" -> "$before" + "exp($operand)"
-                            "Log" -> "$before" + "10^($operand)"
-                            else -> expression
-                        }
-
-                        isShiftActive = false
-                    }
-                } else {
-                    expression += "${key.lowercase()}("
+                val function = when {
+                    !isShiftActive && key == "ln" -> "ln("
+                    !isShiftActive && key == "Log" -> "log("
+                    isShiftActive && key == "ln" -> "exp("
+                    else -> "pow(10,"
                 }
+                appendExpressionToken(function)
+                if (isShiftActive) isShiftActive = false
             }
-
             "x!" -> {
                 if (expression.lastOrNull()?.let {
                         it.isDigit() || it == ')' || it == '%' || it == '!'
@@ -320,37 +252,15 @@ fun CalculatorScreen() {
             }
 
             "π" -> {
-                if (isShiftActive) {
-                    expression += "e"
-                    isShiftActive = false
-                } else {
-                    expression += "π"
-                }
+                appendExpressionToken(if (isShiftActive) "e" else "π")
+                if (isShiftActive) isShiftActive = false
             }
 
             "=" -> {
 
                 if (expression.isNotBlank()) {
                     try {
-                        val rootStart = expression.lastIndexOf("^(1/")
-                        val rootOpeningIndex = if (rootStart >= 0) rootStart + 1 else -1
-
-                        val expressionToEvaluate = if (isRootIndexActive && rootOpeningIndex >= 0) {
-                            val rootPart = expression.substring(rootOpeningIndex)
-                            val openCount = rootPart.count { it == '(' }
-                            val closeCount = rootPart.count { it == ')' }
-
-                            if (openCount > closeCount) {
-                                "$expression)"
-                            } else {
-                                expression
-                            }
-                        } else {
-                            expression
-                        }
-
-                        val value = engine.evaluate(expressionToEvaluate, angleUnit)
-                        isRootIndexActive = false
+                        engine.evaluate(expression, angleUnit)
                         errorMessage = null
 
                     } catch (e: IllegalArgumentException) {
@@ -379,12 +289,17 @@ fun CalculatorScreen() {
                         expression += key
                     }
                 } else if (key == ".") {
-                    val currentNumber = expression
-                        .takeLastWhile {
-                            it.isDigit() || it == '.'
+                    if (isShiftActive) {
+                        if (canInsertPowArgumentSeparator(expression)) {
+                            expression += ","
+                            isShiftActive = false
                         }
-                    if (!currentNumber.contains('.')) {
-                        expression += if (currentNumber.isEmpty()) "0." else "."
+                    } else {
+                        val currentNumber = expression
+                            .takeLastWhile { it.isDigit() || it == '.' }
+                        if (!currentNumber.contains('.')) {
+                            expression += if (currentNumber.isEmpty()) "0." else "."
+                        }
                     }
                 } else {
                     expression += key
@@ -530,6 +445,7 @@ fun CalculatorScreen() {
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
+                        modifier = Modifier.testTag("calculator-error"),
                         fontSize = 16.sp,
                         color = colors.error,
                         fontWeight = FontWeight.Medium
@@ -564,6 +480,7 @@ fun CalculatorScreen() {
                                 "Sin" -> "sin⁻¹"
                                 "Cos" -> "cos⁻¹"
                                 "Tan" -> "tan⁻¹"
+                                "." -> ","
                                 "x²" -> "√"
                                 "xʸ" -> "ʸ√x"
                                 else -> null
@@ -596,7 +513,11 @@ fun CalculatorScreen() {
                                     .weight(1f)
                                     .height(59.dp)
                                     .clickable { onKey(key) }
-                                    .testTag("calculator-key-$key"),
+                                    .testTag(if (isShift) {
+                                        "calculator-shift-${if (isShiftActive) "active" else "inactive"}"
+                                    } else {
+                                        "calculator-key-$key"
+                                    }),
                                 shape = RoundedCornerShape(22.dp),
                                 color = backgroundColor,
                                 shadowElevation =

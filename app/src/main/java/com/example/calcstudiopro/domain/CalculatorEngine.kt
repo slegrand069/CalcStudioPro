@@ -8,6 +8,7 @@ import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.math.tan
 import kotlin.math.asin
 import kotlin.math.acos
@@ -20,7 +21,6 @@ class CalculatorEngine {
             .replace("×", "*")
             .replace("÷", "/")
             .replace("−", "-")
-            .replace(',', '.')
             .replace("π", "pi")
 
         val parser = Parser(normalized, angleUnit)
@@ -32,6 +32,7 @@ class CalculatorEngine {
         private val angleUnit: AngleUnit
     ) {
         private var pos = 0
+        private var commaIsDecimal = true
 
         fun parse(): Double {
             val result = parseExpression()
@@ -82,24 +83,68 @@ class CalculatorEngine {
 
         // Multiplication et division
         private fun parseTerm(): Double {
+            var factorStart = pos
             var value = parseUnary()
+            var canImplicitlyMultiplyFunction =
+                isNumericLiteral(input.substring(factorStart, pos))
 
             while (true) {
                 skipSpaces()
-                value = when {
-                    eat('*') -> value * parseUnary()
+                when {
+                    eat('*') -> {
+                        factorStart = pos
+                        value *= parseUnary()
+                        canImplicitlyMultiplyFunction =
+                            isNumericLiteral(input.substring(factorStart, pos))
+                    }
+
                     eat('/') -> {
                         val divisor = parseUnary()
                         require(divisor != 0.0) {
                             "Division par zéro"
                         }
-                        value / divisor
+                        value /= divisor
+                        canImplicitlyMultiplyFunction = false
                     }
+
+                    canImplicitlyMultiplyFunction && startsFunctionCall() -> {
+                        value *= parseUnary()
+                        canImplicitlyMultiplyFunction = false
+                    }
+
                     else -> return value
                 }
             }
         }
 
+        private fun isNumericLiteral(value: String): Boolean {
+            val number = value.trim().removePrefix("-").removePrefix("+")
+            if (number.isEmpty()) return false
+
+            var decimalFound = false
+            for (character in number) {
+                when {
+                    character.isDigit() -> Unit
+                    (character == '.' || character == ',') && !decimalFound -> decimalFound = true
+                    else -> return false
+                }
+            }
+            return true
+        }
+
+        private fun startsFunctionCall(): Boolean {
+            if (pos >= input.length || !input[pos].isLetter()) return false
+
+            var nameEnd = pos
+            while (nameEnd < input.length && input[nameEnd].isLetter()) nameEnd++
+            val name = input.substring(pos, nameEnd)
+            if (name !in setOf("ln", "log", "exp", "sqrt", "pow", "sin", "cos", "tan", "asin", "acos", "atan")) {
+                return false
+            }
+
+            while (nameEnd < input.length && input[nameEnd].isWhitespace()) nameEnd++
+            return nameEnd < input.length && input[nameEnd] == '('
+        }
         // Signes + et -
         private fun parseUnary(): Double {
             skipSpaces()
@@ -177,7 +222,12 @@ class CalculatorEngine {
                 require(eat('(')) {
                     "Parenthèse ouvrante manquante"
                 }
-                val argument = parseExpression()
+
+                if (name == "pow") {
+                    return parsePowFunction()
+                }
+
+                val argument = parseExpressionWithCommaDecimal(true)
                 skipSpaces()
                 require(eat(')')) {
                     "Parenthèse fermante manquante"
@@ -199,6 +249,12 @@ class CalculatorEngine {
                     }
 
                     "exp" -> exp(argument)
+                    "sqrt" -> {
+                        require(argument >= 0.0) {
+                            "Racine carrée invalide"
+                        }
+                        sqrt(argument)
+                    }
 
                     "sin" -> sin(angleUnit.toRadians(argument))
                     "cos" -> cos(angleUnit.toRadians(argument))
@@ -236,6 +292,30 @@ class CalculatorEngine {
             return parseNumber()
         }
 
+        private fun parseExpressionWithCommaDecimal(enabled: Boolean): Double {
+            val previous = commaIsDecimal
+            commaIsDecimal = enabled
+            return try {
+                parseExpression()
+            } finally {
+                commaIsDecimal = previous
+            }
+        }
+
+        private fun parsePowFunction(): Double {
+            val base = parseExpressionWithCommaDecimal(false)
+            skipSpaces()
+            require(eat(',')) {
+                "Séparateur d'arguments manquant dans pow"
+            }
+
+            val exponent = parseExpressionWithCommaDecimal(false)
+            skipSpaces()
+            require(eat(')')) {
+                "La fonction pow attend exactement deux arguments"
+            }
+            return base.pow(exponent)
+        }
         private fun parseNumber(): Double {
             val start = pos
             var decimalFound = false
@@ -244,7 +324,7 @@ class CalculatorEngine {
                 val c = input[pos]
                 when {
                     c.isDigit() -> pos++
-                    c == '.' && !decimalFound -> {
+                    (c == '.' || (c == ',' && commaIsDecimal)) && !decimalFound -> {
                         decimalFound = true
                         pos++
                     }
@@ -261,7 +341,7 @@ class CalculatorEngine {
                 "Nombre invalide"
             }
 
-            return number.toDouble()
+            return number.replace(',', '.').toDouble()
         }
 
         private fun eat(char: Char): Boolean {
