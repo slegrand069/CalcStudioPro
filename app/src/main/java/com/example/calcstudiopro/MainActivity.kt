@@ -47,6 +47,7 @@ fun CalculatorScreen() {
     val engine = remember { CalculatorEngine() }
     var expression by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var completedResult by remember { mutableStateOf<Double?>(null) }
     var isShiftActive by remember { mutableStateOf(false) }
     var isRadians by remember { mutableStateOf(false) }
     var isScientific by remember { mutableStateOf(false) }
@@ -141,6 +142,19 @@ fun CalculatorScreen() {
     }
 
     fun onKey(key: String) {
+        completedResult?.let { previousResult ->
+            if (key != "=") {
+                val continuesFromResult = key in setOf("+", "−", "×", "÷", "1/x", "x!") ||
+                    (key == "x²" && !isShiftActive)
+                expression = if (continuesFromResult) {
+                    formatExpressionNumber(previousResult)
+                } else {
+                    ""
+                }
+                completedResult = null
+            }
+        }
+
         if (key != "=") {
             errorMessage = null
         }
@@ -260,15 +274,17 @@ fun CalculatorScreen() {
 
                 if (expression.isNotBlank()) {
                     try {
-                        engine.evaluate(expression, angleUnit)
+                        completedResult = engine.evaluate(expression, angleUnit)
                         errorMessage = null
 
                     } catch (e: IllegalArgumentException) {
+                        completedResult = null
                         errorMessage = when (e.message) {
                             "Division par zéro" -> "Division par zéro impossible"
                             else -> "Syntaxe incorrecte"
                         }
                     } catch (e: Exception) {
+                        completedResult = null
                         errorMessage = "Erreur de calcul"
                     }
                 }

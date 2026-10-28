@@ -13,6 +13,63 @@ class TrigFunctionEntryTest {
     private var expectedShiftActive = false
 
     @Test
+    fun equalsStartsANewExpressionForNumbersAndFunctions() {
+        enterFiveAndEvaluate()
+        tapKey("7")
+        assertExpression("7")
+        assertResult("7")
+
+        resetExpression()
+        enterFiveAndEvaluate()
+        tapKey("Sin")
+        assertExpression("sin(")
+
+        resetExpression()
+        enterFiveAndEvaluate()
+        tapShift()
+        tapKey("Sin")
+        assertExpression("asin(")
+        assertShiftState(false)
+    }
+
+    @Test
+    fun basicOperatorsContinueFromThePreviousResultAfterEquals() {
+        assertOperatorContinuation("+", "5+", "4", "9")
+        assertOperatorContinuation("−", "5−", "4", "1")
+        assertOperatorContinuation("×", "5×", "4", "20")
+        assertOperatorContinuation("÷", "5÷", "4", "1.25")
+    }
+
+    @Test
+    fun squareReciprocalAndFactorialContinueFromThePreviousResultAfterEquals() {
+        enterFiveAndEvaluate()
+        tapKey("x²")
+        assertExpression("5^2")
+        assertResult("25")
+
+        resetExpression()
+        enterFiveAndEvaluate()
+        tapKey("1/x")
+        assertExpression("1/(5)")
+        assertResult("0.2")
+
+        resetExpression()
+        enterFiveAndEvaluate()
+        tapKey("x!")
+        assertExpression("5!")
+        assertResult("120")
+    }
+
+    @Test
+    fun shiftedSquareRootStartsANewExpressionAfterEquals() {
+        enterFiveAndEvaluate()
+        tapShift()
+        tapKey("x²")
+        assertExpression("sqrt(")
+        assertShiftState(false)
+    }
+
+    @Test
     fun everyShiftFunctionCanStartWithAnEmptyExpression() {
         assertShiftedInsertion("ln", "exp(")
         assertShiftedInsertion("Log", "pow(10,")
@@ -170,7 +227,7 @@ class TrigFunctionEntryTest {
         tapKey("−")
         tapKey("3")
         tapKey(")")
-        assertExpression("pow(2,-3)")
+        assertExpression("pow(2,−3)")
         assertResult("0.125")
     }
 
@@ -267,6 +324,29 @@ class TrigFunctionEntryTest {
         assertExpression(expected)
         assertShiftState(false)
         resetExpression()
+    }
+
+    private fun enterFiveAndEvaluate() {
+        tapKey("2")
+        tapKey("+")
+        tapKey("3")
+        tapKey("=")
+        assertResult("5")
+    }
+
+    private fun assertOperatorContinuation(
+        operator: String,
+        expectedExpression: String,
+        nextOperand: String,
+        expectedResult: String
+    ) {
+        resetExpression()
+        enterFiveAndEvaluate()
+        tapKey(operator)
+        assertExpression(expectedExpression)
+        nextOperand.forEach { tapKey(it.toString()) }
+        tapKey("=")
+        assertResult(expectedResult)
     }
 
     private fun verifyFunction(
