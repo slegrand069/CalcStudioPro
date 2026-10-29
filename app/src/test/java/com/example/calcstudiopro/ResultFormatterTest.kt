@@ -28,4 +28,13 @@ class ResultFormatterTest {
     fun formatsNegativeThresholdInScientificNotation() {
         assertEquals("-1 × 10¹¹", formatResult(-100_000_000_000.0))
     }
+
+    @Test
+    fun formatsScientificResultsWithExponentsInMultiplesOfThree() {
+        assertEquals("150,5 × 10³", formatEngineeringResult(150_500.0))
+        assertEquals("1,5 × 10⁶", formatEngineeringResult(1_500_000.0))
+        assertEquals("-1,2 × 10⁻⁶", formatEngineeringResult(-0.0000012))
+        assertEquals("123.45", formatEngineeringResult(123.45))
+        assertEquals("0", formatEngineeringResult(0.0))
+    }
 }

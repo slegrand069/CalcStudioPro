@@ -19,6 +19,23 @@ internal fun formatResult(number: Double): String {
         .toPlainString()
 }
 
+/** Formats decimal results with an engineering exponent, always a multiple of three. */
+internal fun formatEngineeringResult(number: Double): String {
+    if (number == 0.0) return formatResult(number)
+
+    val absoluteValue = abs(number)
+    if (absoluteValue >= 0.001 && absoluteValue < 1_000.0) {
+        return formatResult(number)
+    }
+
+    val normalized = BigDecimal.valueOf(number).stripTrailingZeros()
+    val decimalExponent = normalized.precision() - normalized.scale() - 1
+    val engineeringExponent = Math.floorDiv(decimalExponent, 3) * 3
+    val mantissa = normalized.movePointLeft(engineeringExponent).stripTrailingZeros()
+    val mantissaText = mantissa.toPlainString().replace('.', ',')
+    return "$mantissaText × 10${engineeringExponent.toSuperscript()}"
+}
+
 private fun Int.toSuperscript(): String = toString().map { digit ->
     when (digit) {
         '-' -> '⁻'

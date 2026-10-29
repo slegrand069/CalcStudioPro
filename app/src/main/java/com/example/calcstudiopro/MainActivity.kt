@@ -594,6 +594,7 @@ fun CalculatorScreen() {
                                     RoundedCornerShape(4.dp)
                                 )
                                 .clickable { isScientific = !isScientific }
+                                .testTag("calculator-number-format-toggle")
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
                     }
@@ -638,7 +639,9 @@ fun CalculatorScreen() {
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     val resultText = if (numberBase == NumberBase.DEC) {
-                        currentDisplayedDecimalResult()?.let(::formatResult)
+                        currentDisplayedDecimalResult()?.let {
+                            if (isScientific) formatEngineeringResult(it) else formatResult(it)
+                        }
                     } else {
                         currentDisplayedIntegerResult()?.let { formatProgrammerResultForDisplay(it, numberBase) }
                     } ?: ""
