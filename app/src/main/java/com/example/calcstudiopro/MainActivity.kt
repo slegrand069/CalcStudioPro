@@ -32,9 +32,13 @@ import com.example.calcstudiopro.domain.CalculatorEngine
 import com.example.calcstudiopro.domain.NumberBase
 import com.example.calcstudiopro.domain.ProgrammerCalculatorEngine
 import com.example.calcstudiopro.domain.ProgrammerExpressionConverter
+import com.example.calcstudiopro.domain.ApproximationResult
+import com.example.calcstudiopro.domain.ContinuedFractionApproximator
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import com.example.calcstudiopro.settings.CalculatorNotation
+import com.example.calcstudiopro.settings.ContinuedFractionSettings
 import com.example.calcstudiopro.settings.DataStoreSettingsRepository
+import com.example.calcstudiopro.settings.ResultPresentation
 import com.example.calcstudiopro.settings.SettingsRoute
 import com.example.calcstudiopro.settings.SettingsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -73,6 +77,9 @@ class MainActivity : ComponentActivity() {
                             onOpenSettings = { navController.navigate("settings") },
                             initialAngleUnit = appSettings.settings.angleUnit,
                             initialNotation = appSettings.settings.notation,
+                            continuedFractionSettings = appSettings.settings.continuedFractions,
+                            resultPresentation = appSettings.settings.continuedFractions.resultPresentation,
+                            settingsLoaded = !appSettings.isLoading,
                             onAngleUnitChange = settingsViewModel::updateAngleUnit,
                             onNotationChange = settingsViewModel::updateNotation
                         )
@@ -91,6 +98,9 @@ fun CalculatorScreen(
     onOpenSettings: () -> Unit = {},
     initialAngleUnit: AngleUnit = AngleUnit.DEGREES,
     initialNotation: CalculatorNotation = CalculatorNotation.STANDARD,
+    continuedFractionSettings: ContinuedFractionSettings = ContinuedFractionSettings(),
+    resultPresentation: ResultPresentation = ResultPresentation.FRACTION,
+    settingsLoaded: Boolean = true,
     onAngleUnitChange: (AngleUnit) -> Unit = {},
     onNotationChange: (CalculatorNotation) -> Unit = {}
 ) {
@@ -98,6 +108,7 @@ fun CalculatorScreen(
     val engine = remember { CalculatorEngine() }
     val programmerEngine = remember { ProgrammerCalculatorEngine() }
     val expressionConverter = remember { ProgrammerExpressionConverter() }
+    val continuedFractionApproximator = remember { ContinuedFractionApproximator() }
     var expression by rememberSaveable { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var numberBase by remember { mutableStateOf(NumberBase.DEC) }
@@ -105,6 +116,7 @@ fun CalculatorScreen(
     var completedIntegerResult by remember { mutableStateOf<Long?>(null) }
     var decimalResultOverride by remember { mutableStateOf<Double?>(null) }
     var integerResultOverride by remember { mutableStateOf<Long?>(null) }
+    var displayedFraction by remember { mutableStateOf<ApproximationResult.Success?>(null) }
     var isShiftActive by remember { mutableStateOf(false) }
     var isRadians by rememberSaveable { mutableStateOf(initialAngleUnit == AngleUnit.RADIANS) }
     var isScientific by rememberSaveable { mutableStateOf(initialNotation == CalculatorNotation.SCIENTIFIC) }
@@ -114,6 +126,10 @@ fun CalculatorScreen(
     LaunchedEffect(initialAngleUnit, initialNotation) {
         isRadians = initialAngleUnit == AngleUnit.RADIANS
         isScientific = initialNotation == CalculatorNotation.SCIENTIFIC
+    }
+
+    LaunchedEffect(resultPresentation) {
+        if (resultPresentation == ResultPresentation.DECIMAL) displayedFraction = null
     }
 
     val angleUnit = if (isRadians) AngleUnit.RADIANS else AngleUnit.DEGREES
@@ -150,6 +166,7 @@ fun CalculatorScreen(
     fun currentDisplayedIntegerResult(): Long? = integerResultOverride ?: integerResult
 
     fun cycleNumberBase() {
+        displayedFraction = null
         val nextBase = when (numberBase) {
             NumberBase.DEC -> NumberBase.BIN
             NumberBase.BIN -> NumberBase.OCT
@@ -263,7 +280,8 @@ fun CalculatorScreen(
 
     fun onKey(key: String) {
         val isDisplayShift = key == "LSh" || key == "RSh"
-        if (!isDisplayShift && key != "=") {
+        if (key != "=" && key != "Shift") displayedFraction = null
+        if (!isDisplayShift && key != "=" && key != "Shift") {
             val previousDecimal = completedDecimalResult
             val previousInteger = completedIntegerResult
             if (previousDecimal != null || previousInteger != null) {
@@ -420,6 +438,44 @@ fun CalculatorScreen(
             }
 
             "=" -> {
+                if (isShiftActive && numberBase == NumberBase.DEC) {
+                    if (!settingsLoaded) return
+                    if (resultPresentation == ResultPresentation.DECIMAL) {
+                        displayedFraction = null
+                        isShiftActive = false
+                        errorMessage = null
+                        return
+                    }
+
+                    if (displayedFraction != null) {
+                        displayedFraction = null
+                        isShiftActive = false
+                        errorMessage = null
+                        return
+                    }
+
+                    val numericResult = currentDisplayedDecimalResult()
+                        ?.takeIf { it.isFinite() }
+                        ?: return
+                    when (val approximation = continuedFractionApproximator.approximate(
+                        numericResult,
+                        continuedFractionSettings
+                    )) {
+                        is ApproximationResult.Success -> {
+                            displayedFraction = approximation
+                            errorMessage = null
+                        }
+
+                        is ApproximationResult.Failure -> {
+                            displayedFraction = null
+                            errorMessage = "Aucune fraction conforme aux limites"
+                        }
+                    }
+                    isShiftActive = false
+                    return
+                }
+
+                displayedFraction = null
                 decimalResultOverride = null
                 integerResultOverride = null
 
@@ -692,9 +748,12 @@ fun CalculatorScreen(
                     contentAlignment = Alignment.CenterEnd
                 ) {
                     val resultText = if (numberBase == NumberBase.DEC) {
-                        currentDisplayedDecimalResult()?.let {
-                            if (isScientific) formatEngineeringResult(it) else formatResult(it)
-                        }
+                        displayedFraction
+                            ?.takeIf { resultPresentation == ResultPresentation.FRACTION }
+                            ?.let(::formatFraction)
+                            ?: currentDisplayedDecimalResult()?.let {
+                                if (isScientific) formatEngineeringResult(it) else formatResult(it)
+                            }
                     } else {
                         currentDisplayedIntegerResult()?.let { formatProgrammerResultForDisplay(it, numberBase) }
                     } ?: ""
@@ -781,6 +840,7 @@ fun CalculatorScreen(
                                     key == "x²" -> "√"
                                     key == "xʸ" && numberBase != NumberBase.DEC -> "pow"
                                     key == "xʸ" -> "pow"
+                                    key == "=" -> "≈"
                                     else -> null
                                 }
                                 val backgroundColor = when {

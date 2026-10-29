@@ -37,6 +37,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
+private val defaultToleranceLabel = ContinuedFractionSettings.DEFAULT_TOLERANCE
+    .toString()
+    .replace(".0E", "e")
+    .replace("E", "e")
+
 @Composable
 fun SettingsRoute(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
@@ -59,11 +64,11 @@ private fun SettingsScreen(
     onNotationChange: (CalculatorNotation) -> Unit
 ) {
     val settings = state.settings.continuedFractions
-    var toleranceText by rememberSaveable { mutableStateOf(settings.tolerance.toString().replace(".0E", "e").replace("E", "e")) }
+    var toleranceText by rememberSaveable { mutableStateOf(settings.tolerance.toReadableTolerance()) }
     var denominatorText by rememberSaveable { mutableStateOf(settings.maxDenominator.toString()) }
     var iterationsText by rememberSaveable { mutableStateOf(settings.maxIterations.toString()) }
     LaunchedEffect(settings) {
-        toleranceText = settings.tolerance.toString().replace(".0E", "e").replace("E", "e")
+        toleranceText = settings.tolerance.toReadableTolerance()
         denominatorText = settings.maxDenominator.toString()
         iterationsText = settings.maxIterations.toString()
     }
@@ -99,7 +104,7 @@ private fun SettingsScreen(
                 },
                 modifier = Modifier.fillMaxWidth().testTag("settings-tolerance"),
                 label = { Text("Tolérance de l’approximation") },
-                supportingText = { Text("Seuil numérique (valeur par défaut : 1e-10)") },
+                supportingText = { Text("Seuil numérique (valeur par défaut : $defaultToleranceLabel)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
             )
@@ -176,6 +181,8 @@ private fun SettingsScreen(
         }
     }
 }
+
+private fun Double.toReadableTolerance(): String = toString().replace(".0E", "e").replace("E", "e")
 
 @Composable
 private fun ChoiceOption(

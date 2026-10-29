@@ -37,7 +37,7 @@ class SettingsNavigationTest {
         tap("+")
         composeRule.onNodeWithTag("calculator-settings").performClick()
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
-        assertEditableText("settings-tolerance", "1e-10")
+        assertEditableText("settings-tolerance", "1e-8")
         assertEditableText("settings-max-denominator", "10000")
         assertEditableText("settings-max-iterations", "64")
         composeRule.onNodeWithTag("settings-presentation-FRACTION").assertIsSelected()
@@ -79,7 +79,94 @@ class SettingsNavigationTest {
         composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").assertIsSelected()
     }
 
-    private fun tap(key: String) = composeRule.onNodeWithTag("calculator-key-$key").performClick()
+    @Test
+    fun shiftEqualsTogglesFractionWithoutChangingTheExpressionEvenInScientificMode() {
+        enterOneThirdAndEvaluate()
+        assertResult("0.3333333333")
+
+        composeRule.onNodeWithTag("calculator-settings").performClick()
+        composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").performClick()
+        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithText("≈").assertIsDisplayed()
+
+        tap("Shift")
+        tap("=")
+        assertResult("1/3")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("1÷3")
+
+        tap("Shift")
+        tap("=")
+        assertResult("0.3333333333")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("1÷3")
+    }
+
+    @Test
+    fun decimalPresentationKeepsShiftEqualsInDecimalMode() {
+        composeRule.onNodeWithTag("calculator-settings").performClick()
+        composeRule.onNodeWithTag("settings-presentation-DECIMAL").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        enterOneThirdAndEvaluate()
+        tap("Shift")
+        tap("=")
+
+        assertResult("0.3333333333")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("1÷3")
+    }
+
+    @Test
+    fun newExpressionReleasesFractionAndTheNextCalculationUsesItsOwnValue() {
+        enterOneThirdAndEvaluate()
+        tap("Shift")
+        tap("=")
+        assertResult("1/3")
+
+        tap("2")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("2")
+        assertResult("2")
+        tap("=")
+        tap("Shift")
+        tap("=")
+        assertResult("2/1")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("2")
+    }
+
+    @Test
+    fun approximationFailureAndMissingResultNeverReuseAnOldFraction() {
+        composeRule.onNodeWithTag("calculator-settings").performClick()
+        composeRule.onNodeWithTag("settings-max-denominator").performTextClearance()
+        composeRule.onNodeWithTag("settings-max-denominator").performTextInput("1")
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("settings-back").performClick()
+
+        enterOneThirdAndEvaluate()
+        tap("Shift")
+        tap("=")
+        assertResult("0.3333333333")
+        composeRule.onNodeWithText("Aucune fraction conforme aux limites").assertIsDisplayed()
+
+        tap("AC")
+        tap("Shift")
+        tap("=")
+        assertResult("")
+        composeRule.onNodeWithTag("calculator-expression").assertTextEquals("0")
+    }
+
+    private fun tap(key: String) {
+        val tag = if (key == "Shift") "calculator-shift-inactive" else "calculator-key-$key"
+        composeRule.onNodeWithTag(tag).performClick()
+    }
+
+    private fun enterOneThirdAndEvaluate() {
+        tap("1")
+        tap("÷")
+        tap("3")
+        tap("=")
+    }
+
+    private fun assertResult(expected: String) =
+        composeRule.onNodeWithTag("calculator-result").assertTextEquals(expected)
 
     private fun assertEditableText(tag: String, value: String) {
         composeRule.onNodeWithTag(tag).assert(

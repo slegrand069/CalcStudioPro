@@ -12,10 +12,12 @@ class ContinuedFractionSettingsTest {
 
     @Test
     fun defaultsAreCentralizedAndExpected() {
-        assertEquals(1e-10, ContinuedFractionSettings().tolerance, 0.0)
-        assertEquals(10_000, ContinuedFractionSettings().maxDenominator)
-        assertEquals(64, ContinuedFractionSettings().maxIterations)
-        assertEquals(ResultPresentation.FRACTION, ContinuedFractionSettings().resultPresentation)
+        val defaults = ContinuedFractionSettings()
+        assertEquals(1e-8, ContinuedFractionSettings.DEFAULT_TOLERANCE, 0.0)
+        assertEquals(ContinuedFractionSettings.DEFAULT_TOLERANCE, defaults.tolerance, 0.0)
+        assertEquals(10_000, defaults.maxDenominator)
+        assertEquals(64, defaults.maxIterations)
+        assertEquals(ResultPresentation.FRACTION, defaults.resultPresentation)
     }
 
     @Test

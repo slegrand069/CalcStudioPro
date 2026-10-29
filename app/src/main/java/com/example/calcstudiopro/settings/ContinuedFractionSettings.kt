@@ -20,7 +20,7 @@ data class ContinuedFractionSettings(
     }
 
     companion object {
-        const val DEFAULT_TOLERANCE = 1e-10
+        const val DEFAULT_TOLERANCE = 1e-8
         const val DEFAULT_MAX_DENOMINATOR = 10_000
         const val DEFAULT_MAX_ITERATIONS = 64
         val DEFAULT_RESULT_PRESENTATION = ResultPresentation.FRACTION

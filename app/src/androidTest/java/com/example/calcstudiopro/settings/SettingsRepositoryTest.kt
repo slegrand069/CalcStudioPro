@@ -67,4 +67,21 @@ class SettingsRepositoryTest {
         assertEquals(AppSettings(), DataStoreSettingsRepository(store).settings.first())
         assertEquals(AppSettings(), repository.settings.first())
     }
+
+    @Test
+    fun validPreviouslyStoredToleranceIsNotReplacedByTheNewDefault() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File(context.cacheDir, "settings-${UUID.randomUUID()}.preferences_pb")
+        val store = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            produceFile = { file }
+        )
+        store.edit { prefs -> prefs[doublePreferencesKey("tolerance")] = 1e-10 }
+
+        assertEquals(
+            1e-10,
+            DataStoreSettingsRepository(store).settings.first().continuedFractions.tolerance,
+            0.0
+        )
+    }
 }
