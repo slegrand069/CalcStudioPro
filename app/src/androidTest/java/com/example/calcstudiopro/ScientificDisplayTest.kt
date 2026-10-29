@@ -4,12 +4,16 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class ScientificDisplayTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
+
+    @Before
+    fun resetSettings() = resetSettingsToDefaults()
 
     @Test
     fun switchingToSciReformatsTheCurrentDecimalResultAndBack() {

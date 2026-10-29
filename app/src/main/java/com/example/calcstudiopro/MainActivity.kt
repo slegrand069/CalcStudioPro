@@ -11,12 +11,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +33,14 @@ import com.example.calcstudiopro.domain.NumberBase
 import com.example.calcstudiopro.domain.ProgrammerCalculatorEngine
 import com.example.calcstudiopro.domain.ProgrammerExpressionConverter
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
+import com.example.calcstudiopro.settings.CalculatorNotation
+import com.example.calcstudiopro.settings.DataStoreSettingsRepository
+import com.example.calcstudiopro.settings.SettingsRoute
+import com.example.calcstudiopro.settings.SettingsViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import java.math.BigDecimal
 
 private val HEX_LETTER_LABELS = mapOf(
@@ -49,19 +59,46 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             CalcStudioProTheme {
-                CalculatorScreen()
+                val navController = rememberNavController()
+                val settingsRepository = remember {
+                    DataStoreSettingsRepository(applicationContext)
+                }
+                val settingsViewModel: SettingsViewModel = viewModel(
+                    factory = remember { SettingsViewModel.Factory(settingsRepository) }
+                )
+                val appSettings by settingsViewModel.state.collectAsState()
+                NavHost(navController = navController, startDestination = "calculator") {
+                    composable("calculator") {
+                        CalculatorScreen(
+                            onOpenSettings = { navController.navigate("settings") },
+                            initialAngleUnit = appSettings.settings.angleUnit,
+                            initialNotation = appSettings.settings.notation,
+                            onAngleUnitChange = settingsViewModel::updateAngleUnit,
+                            onNotationChange = settingsViewModel::updateNotation
+                        )
+                    }
+                    composable("settings") {
+                        SettingsRoute(settingsViewModel) { navController.popBackStack() }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun CalculatorScreen() {
+fun CalculatorScreen(
+    onOpenSettings: () -> Unit = {},
+    initialAngleUnit: AngleUnit = AngleUnit.DEGREES,
+    initialNotation: CalculatorNotation = CalculatorNotation.STANDARD,
+    onAngleUnitChange: (AngleUnit) -> Unit = {},
+    onNotationChange: (CalculatorNotation) -> Unit = {}
+) {
     val colors = MaterialTheme.colorScheme
     val engine = remember { CalculatorEngine() }
     val programmerEngine = remember { ProgrammerCalculatorEngine() }
     val expressionConverter = remember { ProgrammerExpressionConverter() }
-    var expression by remember { mutableStateOf("") }
+    var expression by rememberSaveable { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var numberBase by remember { mutableStateOf(NumberBase.DEC) }
     var completedDecimalResult by remember { mutableStateOf<Double?>(null) }
@@ -69,10 +106,15 @@ fun CalculatorScreen() {
     var decimalResultOverride by remember { mutableStateOf<Double?>(null) }
     var integerResultOverride by remember { mutableStateOf<Long?>(null) }
     var isShiftActive by remember { mutableStateOf(false) }
-    var isRadians by remember { mutableStateOf(false) }
-    var isScientific by remember { mutableStateOf(false) }
+    var isRadians by rememberSaveable { mutableStateOf(initialAngleUnit == AngleUnit.RADIANS) }
+    var isScientific by rememberSaveable { mutableStateOf(initialNotation == CalculatorNotation.SCIENTIFIC) }
     var memoryValue by remember { mutableDoubleStateOf(0.0) }
     var memoryIntegerValue by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(initialAngleUnit, initialNotation) {
+        isRadians = initialAngleUnit == AngleUnit.RADIANS
+        isScientific = initialNotation == CalculatorNotation.SCIENTIFIC
+    }
 
     val angleUnit = if (isRadians) AngleUnit.RADIANS else AngleUnit.DEGREES
 
@@ -557,11 +599,13 @@ fun CalculatorScreen() {
                         color = colors.onBackground
                     )
 
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Paramètres",
-                        tint = colors.onBackground
-                    )
+                    IconButton(onClick = onOpenSettings, modifier = Modifier.testTag("calculator-settings")) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Paramètres",
+                            tint = colors.onBackground
+                        )
+                    }
                 }
 
                 Row(
@@ -579,7 +623,11 @@ fun CalculatorScreen() {
                                     colors.primary.copy(alpha = 0.12f),
                                     RoundedCornerShape(4.dp)
                                 )
-                                .clickable { isRadians = !isRadians }
+                                .clickable {
+                                    isRadians = !isRadians
+                                    onAngleUnitChange(if (isRadians) AngleUnit.RADIANS else AngleUnit.DEGREES)
+                                }
+                                .testTag("calculator-angle-toggle")
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
 
@@ -593,7 +641,12 @@ fun CalculatorScreen() {
                                     colors.primary.copy(alpha = 0.12f),
                                     RoundedCornerShape(4.dp)
                                 )
-                                .clickable { isScientific = !isScientific }
+                                .clickable {
+                                    isScientific = !isScientific
+                                    onNotationChange(
+                                        if (isScientific) CalculatorNotation.SCIENTIFIC else CalculatorNotation.STANDARD
+                                    )
+                                }
                                 .testTag("calculator-number-format-toggle")
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
