@@ -58,6 +58,8 @@ import com.example.calcstudiopro.statistics.StatisticsRoute
 import com.example.calcstudiopro.statistics.StatisticsViewModel
 import com.example.calcstudiopro.geometry.GeometryRoute
 import com.example.calcstudiopro.geometry.GeometryViewModel
+import com.example.calcstudiopro.arithmetic.ArithmeticRoute
+import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
 import java.math.BigDecimal
 
 private val HEX_LETTER_LABELS = mapOf(
@@ -97,6 +99,7 @@ class MainActivity : ComponentActivity() {
                 val statisticsViewModel: StatisticsViewModel = viewModel(
                     factory = remember { StatisticsViewModel.Factory(historyRepository) }
                 )
+                val arithmeticViewModel: ArithmeticViewModel = viewModel(factory = remember { ArithmeticViewModel.Factory(historyRepository) })
                 val geometryViewModel: GeometryViewModel = viewModel(
                     factory = remember { GeometryViewModel.Factory(historyRepository) }
                 )
@@ -147,6 +150,7 @@ class MainActivity : ComponentActivity() {
                         composable("statistics") {
                             StatisticsRoute(statisticsViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
                         }
+                        composable("arithmetic") { ArithmeticRoute(arithmeticViewModel, onOpenModeSelector = { isModeSelectorVisible = true }) }
                         composable("geometry") {
                             GeometryRoute(geometryViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
                         }

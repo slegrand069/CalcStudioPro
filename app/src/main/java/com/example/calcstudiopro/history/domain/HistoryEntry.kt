@@ -34,6 +34,7 @@ object HistoryModes {
     const val CONVERTER = "converter"
     const val STATISTICS = "statistics"
     const val GEOMETRY = "geometry"
+    const val ARITHMETIC = "arithmetic"
 }
 
 object HistoryValueTypes {

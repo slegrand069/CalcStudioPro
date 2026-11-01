@@ -12,5 +12,6 @@ val availableModes = listOf(
     ModeDestination(route = "history", label = "Historique"),
     ModeDestination(route = "converter", label = "Convertisseur"),
     ModeDestination(route = "statistics", label = "Statistiques"),
-    ModeDestination(route = "geometry", label = "Géométrie")
+    ModeDestination(route = "geometry", label = "Géométrie"),
+    ModeDestination(route = "arithmetic", label = "Arithmétique")
 )
