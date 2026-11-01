@@ -34,6 +34,10 @@ import com.example.calcstudiopro.domain.ProgrammerCalculatorEngine
 import com.example.calcstudiopro.domain.ProgrammerExpressionConverter
 import com.example.calcstudiopro.domain.ApproximationResult
 import com.example.calcstudiopro.domain.ContinuedFractionApproximator
+import com.example.calcstudiopro.history.HistoryRoute
+import com.example.calcstudiopro.history.HistoryViewModel
+import com.example.calcstudiopro.history.data.CalcStudioDatabase
+import com.example.calcstudiopro.history.data.RoomHistoryRepository
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import com.example.calcstudiopro.settings.CalculatorNotation
 import com.example.calcstudiopro.settings.ContinuedFractionSettings
@@ -44,7 +48,10 @@ import com.example.calcstudiopro.settings.SettingsViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.calcstudiopro.navigation.availableModes
+import com.example.calcstudiopro.ui.components.ModeSelectorDialog
 import java.math.BigDecimal
 
 private val HEX_LETTER_LABELS = mapOf(
@@ -55,6 +62,8 @@ private val HEX_LETTER_LABELS = mapOf(
     "5" to "E",
     "6" to "F"
 )
+
+data class CalculatorInputRequest(val id: Long, val expression: String)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,22 +79,71 @@ class MainActivity : ComponentActivity() {
                 val settingsViewModel: SettingsViewModel = viewModel(
                     factory = remember { SettingsViewModel.Factory(settingsRepository) }
                 )
+                val historyRepository = remember {
+                    RoomHistoryRepository(CalcStudioDatabase.getInstance(applicationContext).historyDao())
+                }
+                val historyViewModel: HistoryViewModel = viewModel(
+                    factory = remember { HistoryViewModel.Factory(historyRepository) }
+                )
                 val appSettings by settingsViewModel.state.collectAsState()
-                NavHost(navController = navController, startDestination = "calculator") {
-                    composable("calculator") {
-                        CalculatorScreen(
-                            onOpenSettings = { navController.navigate("settings") },
-                            initialAngleUnit = appSettings.settings.angleUnit,
-                            initialNotation = appSettings.settings.notation,
-                            continuedFractionSettings = appSettings.settings.continuedFractions,
-                            resultPresentation = appSettings.settings.continuedFractions.resultPresentation,
-                            settingsLoaded = !appSettings.isLoading,
-                            onAngleUnitChange = settingsViewModel::updateAngleUnit,
-                            onNotationChange = settingsViewModel::updateNotation
-                        )
+                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                var isModeSelectorVisible by remember { mutableStateOf(false) }
+                var nextCalculatorInputId by remember { mutableLongStateOf(0L) }
+                var pendingCalculatorInput by remember { mutableStateOf<CalculatorInputRequest?>(null) }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    NavHost(navController = navController, startDestination = "calculator") {
+                        composable("calculator") {
+                            CalculatorScreen(
+                                onOpenSettings = { navController.navigate("settings") },
+                                onOpenModeSelector = { isModeSelectorVisible = true },
+                                onCalculationValidated = historyViewModel::recordScientificCalculation,
+                                recalledInput = pendingCalculatorInput,
+                                onRecalledInputConsumed = { pendingCalculatorInput = null },
+                                initialAngleUnit = appSettings.settings.angleUnit,
+                                initialNotation = appSettings.settings.notation,
+                                continuedFractionSettings = appSettings.settings.continuedFractions,
+                                resultPresentation = appSettings.settings.continuedFractions.resultPresentation,
+                                settingsLoaded = !appSettings.isLoading,
+                                onAngleUnitChange = settingsViewModel::updateAngleUnit,
+                                onNotationChange = settingsViewModel::updateNotation
+                            )
+                        }
+                        composable("settings") {
+                            SettingsRoute(settingsViewModel) { navController.popBackStack() }
+                        }
+                        composable("history") {
+                            HistoryRoute(
+                                viewModel = historyViewModel,
+                                onOpenModeSelector = { isModeSelectorVisible = true },
+                                onReuseValue = { expression ->
+                                    nextCalculatorInputId++
+                                    pendingCalculatorInput = CalculatorInputRequest(nextCalculatorInputId, expression)
+                                    navController.navigate("calculator") {
+                                        launchSingleTop = true
+                                        popUpTo("calculator") { saveState = true }
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
                     }
-                    composable("settings") {
-                        SettingsRoute(settingsViewModel) { navController.popBackStack() }
+
+                    if (isModeSelectorVisible) {
+                        ModeSelectorDialog(
+                            modes = availableModes,
+                            selectedRoute = currentBackStackEntry?.destination?.route ?: "calculator",
+                            onSelect = { mode ->
+                                isModeSelectorVisible = false
+                                if (mode.route != navController.currentBackStackEntry?.destination?.route) {
+                                    navController.navigate(mode.route) {
+                                        launchSingleTop = true
+                                        popUpTo("calculator") { saveState = true }
+                                        restoreState = true
+                                    }
+                                }
+                            },
+                            onDismiss = { isModeSelectorVisible = false }
+                        )
                     }
                 }
             }
@@ -96,6 +154,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CalculatorScreen(
     onOpenSettings: () -> Unit = {},
+    onOpenModeSelector: () -> Unit = {},
+    onCalculationValidated: (expression: String, displayResult: String, value: Double) -> Unit = { _, _, _ -> },
+    recalledInput: CalculatorInputRequest? = null,
+    onRecalledInputConsumed: () -> Unit = {},
     initialAngleUnit: AngleUnit = AngleUnit.DEGREES,
     initialNotation: CalculatorNotation = CalculatorNotation.STANDARD,
     continuedFractionSettings: ContinuedFractionSettings = ContinuedFractionSettings(),
@@ -122,6 +184,18 @@ fun CalculatorScreen(
     var isScientific by rememberSaveable { mutableStateOf(initialNotation == CalculatorNotation.SCIENTIFIC) }
     var memoryValue by remember { mutableDoubleStateOf(0.0) }
     var memoryIntegerValue by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(recalledInput?.id) {
+        val request = recalledInput ?: return@LaunchedEffect
+        expression = request.expression
+        errorMessage = null
+        completedDecimalResult = null
+        completedIntegerResult = null
+        decimalResultOverride = null
+        integerResultOverride = null
+        displayedFraction = null
+        onRecalledInputConsumed()
+    }
 
     LaunchedEffect(initialAngleUnit, initialNotation) {
         isRadians = initialAngleUnit == AngleUnit.RADIANS
@@ -352,7 +426,8 @@ fun CalculatorScreen(
                 isShiftActive = !isShiftActive
             }
 
-            "STO/RCL", "CLM", "MODE" -> Unit
+            "STO/RCL", "CLM" -> Unit
+            "MODE" -> onOpenModeSelector()
 
             "±" -> toggleSign()
 
@@ -482,8 +557,16 @@ fun CalculatorScreen(
                 if (expression.isNotBlank()) {
                     try {
                         if (numberBase == NumberBase.DEC) {
-                            completedDecimalResult = engine.evaluate(expression, angleUnit)
+                            val sourceExpression = expression
+                            val validatedResult = engine.evaluate(sourceExpression, angleUnit)
+                            completedDecimalResult = validatedResult
                             completedIntegerResult = null
+                            val displayResult = if (isScientific) {
+                                formatEngineeringResult(validatedResult)
+                            } else {
+                                formatResult(validatedResult)
+                            }
+                            onCalculationValidated(sourceExpression, displayResult, validatedResult)
                         } else {
                             completedIntegerResult = programmerEngine.evaluate(expression, numberBase)
                             completedDecimalResult = null
