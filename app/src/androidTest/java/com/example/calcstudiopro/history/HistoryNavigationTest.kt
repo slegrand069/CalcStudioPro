@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.calcstudiopro.MainActivity
@@ -48,8 +49,8 @@ class HistoryNavigationTest {
         composeRule.onNodeWithTag("calculator-key-MODE").performClick()
         composeRule.onNodeWithTag("mode-option-history").assertIsDisplayed()
         composeRule.onNodeWithTag("mode-option-calculator").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Convertisseur").assertCountEquals(0)
-        composeRule.onAllNodesWithText("Statistiques").assertCountEquals(0)
+        composeRule.onNodeWithTag("mode-option-converter").assertIsDisplayed()
+        composeRule.onNodeWithTag("mode-option-statistics").assertIsDisplayed()
         composeRule.onAllNodesWithText("Géométrie").assertCountEquals(0)
         composeRule.onAllNodesWithText("Graphique").assertCountEquals(0)
         composeRule.onAllNodesWithText("Arithmétique").assertCountEquals(0)
@@ -92,8 +93,9 @@ class HistoryNavigationTest {
     }
 
     @Test
-    fun tappingCompatibleHistoryValueReinjectsItsCanonicalValue() = runBlocking {
-        repository.add(
+    fun tappingCompatibleHistoryValueReinjectsItsCanonicalValue() {
+        runBlocking {
+            repository.add(
             NewHistoryEntry(
                 sourceMode = HistoryModes.SCIENTIFIC_CALCULATOR,
                 description = "1 ÷ 3",
@@ -102,14 +104,38 @@ class HistoryNavigationTest {
                 reusableValueType = HistoryValueTypes.DECIMAL_DOUBLE,
                 createdAtEpochMillis = 10
             )
-        )
+            )
+        }
 
         composeRule.onNodeWithTag("calculator-key-MODE").performClick()
         composeRule.onNodeWithTag("mode-option-history").performClick()
-        val id = repository.entries.first().single().id
+        val id = runBlocking { repository.entries.first().single().id }
         composeRule.onNodeWithTag("history-reuse-$id").performClick()
         composeRule.onNodeWithTag("calculator-expression")
             .assertTextEquals("0.3333333333333333")
+    }
+
+    @Test
+    fun statisticsModeSavesReadableAnalysisWithoutReuseAction() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        composeRule.onNodeWithTag("statistics-input").assertIsDisplayed()
+        composeRule.onNodeWithText("Série de valeurs").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-mode").performClick()
+        composeRule.onNodeWithTag("mode-option-history").performClick()
+        composeRule.onNodeWithTag("history-empty").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("history-mode").performClick()
+        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        composeRule.onNodeWithTag("statistics-input").performTextInput("1 2 3")
+        composeRule.onNodeWithTag("statistics-save").performClick()
+        composeRule.onNodeWithTag("statistics-mode").performClick()
+        composeRule.onNodeWithTag("mode-option-history").performClick()
+
+        composeRule.onNodeWithText("Statistiques : 1 2 3").assertIsDisplayed()
+        composeRule.onNodeWithText("Effectif : 3", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Écart-type (population) : 0,8164965809", substring = true).assertIsDisplayed()
+        composeRule.onAllNodesWithText("Réutiliser dans la calculatrice").assertCountEquals(0)
     }
 
     private fun openHistory() {

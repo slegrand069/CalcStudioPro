@@ -165,7 +165,7 @@ private fun HistoryEntryCard(
                         text = entry.displayResult,
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
+                        maxLines = if (entry.sourceMode == com.example.calcstudiopro.history.domain.HistoryModes.STATISTICS) 7 else 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("history-result-${entry.id}")
                     )
