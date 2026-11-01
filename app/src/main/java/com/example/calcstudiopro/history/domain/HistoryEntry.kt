@@ -33,6 +33,7 @@ object HistoryModes {
     const val SCIENTIFIC_CALCULATOR = "scientific_calculator"
     const val CONVERTER = "converter"
     const val STATISTICS = "statistics"
+    const val GEOMETRY = "geometry"
 }
 
 object HistoryValueTypes {

@@ -56,6 +56,8 @@ import com.example.calcstudiopro.converter.ConverterViewModel
 import com.example.calcstudiopro.ui.components.ModeSelectorDialog
 import com.example.calcstudiopro.statistics.StatisticsRoute
 import com.example.calcstudiopro.statistics.StatisticsViewModel
+import com.example.calcstudiopro.geometry.GeometryRoute
+import com.example.calcstudiopro.geometry.GeometryViewModel
 import java.math.BigDecimal
 
 private val HEX_LETTER_LABELS = mapOf(
@@ -94,6 +96,9 @@ class MainActivity : ComponentActivity() {
                 )
                 val statisticsViewModel: StatisticsViewModel = viewModel(
                     factory = remember { StatisticsViewModel.Factory(historyRepository) }
+                )
+                val geometryViewModel: GeometryViewModel = viewModel(
+                    factory = remember { GeometryViewModel.Factory(historyRepository) }
                 )
                 val appSettings by settingsViewModel.state.collectAsState()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -141,6 +146,9 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("statistics") {
                             StatisticsRoute(statisticsViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
+                        }
+                        composable("geometry") {
+                            GeometryRoute(geometryViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
                         }
                     }
 
