@@ -174,7 +174,7 @@ private fun HistoryEntryCard(
                     Icon(Icons.Default.Delete, contentDescription = "Supprimer ce calcul")
                 }
             }
-            if (reusableExpression != null) {
+            if (reusableExpression != null && entry.sourceMode != com.example.calcstudiopro.history.domain.HistoryModes.CONVERTER) {
                 Text(
                     text = "Réutiliser dans la calculatrice",
                     color = MaterialTheme.colorScheme.primary,

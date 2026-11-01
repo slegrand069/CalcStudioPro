@@ -51,6 +51,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.calcstudiopro.navigation.availableModes
+import com.example.calcstudiopro.converter.ConverterRoute
+import com.example.calcstudiopro.converter.ConverterViewModel
 import com.example.calcstudiopro.ui.components.ModeSelectorDialog
 import java.math.BigDecimal
 
@@ -84,6 +86,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val historyViewModel: HistoryViewModel = viewModel(
                     factory = remember { HistoryViewModel.Factory(historyRepository) }
+                )
+                val converterViewModel: ConverterViewModel = viewModel(
+                    factory = remember { ConverterViewModel.Factory(historyRepository) }
                 )
                 val appSettings by settingsViewModel.state.collectAsState()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -125,6 +130,9 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             )
+                        }
+                        composable("converter") {
+                            ConverterRoute(converterViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
                         }
                     }
 

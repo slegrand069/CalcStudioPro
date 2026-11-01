@@ -31,6 +31,7 @@ interface HistoryRepository {
 
 object HistoryModes {
     const val SCIENTIFIC_CALCULATOR = "scientific_calculator"
+    const val CONVERTER = "converter"
 }
 
 object HistoryValueTypes {
