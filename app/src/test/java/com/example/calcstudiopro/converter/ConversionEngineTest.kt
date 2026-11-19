@@ -27,6 +27,42 @@ class ConversionEngineTest {
         assertEquals(12.0, convert(12.0, "m", "m"), 0.0)
     }
 
+    @Test fun speedPressurePowerAndEnergyConversions() {
+        assertEquals(3.6, convert(1.0, "m_per_s", "km_per_h"), 1e-12)
+        assertEquals(1.852, convert(1.0, "kn", "km_per_h"), 1e-12)
+        assertEquals(1.0, convert(3.6, "km_per_h", "m_per_s"), 1e-12)
+        assertEquals(1.0, convert(1.0, "mph", "mph"), 0.0)
+
+        assertEquals(100000.0, convert(1.0, "bar", "pa"), 0.0)
+        assertEquals(101325.0, convert(1.0, "atm", "pa"), 0.0)
+        assertEquals(1.0, convert(100000.0, "pa", "bar"), 0.0)
+        assertEquals(6894.757293168, convert(1.0, "psi", "pa"), 1e-9)
+        assertEquals(133.322387415, convert(1.0, "mmhg", "pa"), 1e-12)
+
+        assertEquals(735.49875, convert(1.0, "ch", "w"), 1e-10)
+        assertEquals(745.69987158227022, convert(1.0, "hp", "w"), 1e-10)
+        assertEquals(1.0, convert(1000.0, "w", "kw"), 0.0)
+
+        assertEquals(3_600_000.0, convert(1.0, "kwh", "j"), 0.0)
+        assertEquals(4.184, convert(1.0, "cal", "j"), 0.0)
+        assertEquals(1.0, convert(3_600_000.0, "j", "kwh"), 0.0)
+        assertEquals(1.602176634e-19, convert(1.0, "ev", "j"), 0.0)
+    }
+
+    @Test fun newCategoriesSupportRoundTripsAndRejectOverflow() {
+        val categories = listOf(UnitCategory.SPEED, UnitCategory.PRESSURE, UnitCategory.POWER, UnitCategory.ENERGY)
+        categories.forEach { category ->
+            val base = UnitCatalog.forCategory(category).first()
+            UnitCatalog.forCategory(category).forEach { unit ->
+                val converted = ConversionEngine.convert(1.2345, base, unit)
+                val restored = ConversionEngine.convert(converted, unit, base)
+                assertEquals("Round trip failed for ${unit.id}", 1.2345, restored, 1e-12)
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) { convert(Double.MAX_VALUE, "m_per_s", "mph") }
+        assertThrows(IllegalArgumentException::class.java) { convert(1.0, "km_per_h", "pa") }
+    }
+
     @Test fun validationRejectsIncompatibleAndNonFiniteValues() {
         assertThrows(IllegalArgumentException::class.java) {
             ConversionEngine.convert(1.0, UnitCatalog.get("m")!!, UnitCatalog.get("kg")!!)
