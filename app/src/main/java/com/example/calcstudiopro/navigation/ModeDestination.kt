@@ -3,7 +3,8 @@ package com.example.calcstudiopro.navigation
 /** A mode that is currently available from the shared mode selector. */
 data class ModeDestination(
     val route: String,
-    val label: String
+    val label: String,
+    val enabled: Boolean = true
 )
 
 /** Keep this list limited to modes with a usable screen. */
@@ -13,5 +14,6 @@ val availableModes = listOf(
     ModeDestination(route = "converter", label = "Convertisseur"),
     ModeDestination(route = "statistics", label = "Statistiques"),
     ModeDestination(route = "geometry", label = "Géométrie"),
-    ModeDestination(route = "arithmetic", label = "Arithmétique")
+    ModeDestination(route = "arithmetic", label = "Arithmétique"),
+    ModeDestination(route = "functions", label = "Fonctions", enabled = false)
 )

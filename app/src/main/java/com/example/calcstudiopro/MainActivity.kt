@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import com.example.calcstudiopro.domain.AngleUnit
 import com.example.calcstudiopro.domain.CalculatorEngine
 import com.example.calcstudiopro.domain.NumberBase
@@ -956,14 +957,21 @@ fun CalculatorScreen(
                                 }
                                 val backgroundColor = when {
                                     isEquals -> colors.primary
-                                    isShift && isShiftActive -> colors.primaryContainer
+                                    isShift && isShiftActive -> Color(0xFFD7A923)
+                                    isShift -> Color(0xFFF4CF63)
+                                    key == "AC" -> Color(0xFFD95757)
+                                    key == "⌫" -> Color(0xFFE9953B)
+                                    key == "MODE" -> Color(0xFF65A87A)
                                     !isEnabled -> colors.surfaceVariant.copy(alpha = 0.45f)
                                     isFunction || isOperator -> colors.surfaceVariant
                                     else -> colors.surface
                                 }
                                 val textColor = when {
                                     isEquals -> colors.onPrimary
-                                    isShift && isShiftActive -> colors.onPrimaryContainer
+                                    isShift -> Color(0xFF342600)
+                                    key == "AC" -> Color.White
+                                    key == "⌫" -> Color(0xFF382000)
+                                    key == "MODE" -> Color(0xFF102B18)
                                     !isEnabled -> colors.onSurface.copy(alpha = 0.38f)
                                     isFunction || isOperator -> colors.primary
                                     else -> colors.onSurface
@@ -988,7 +996,12 @@ fun CalculatorScreen(
                                         }),
                                     shape = RoundedCornerShape(22.dp),
                                     color = backgroundColor,
-                                    shadowElevation = if (isEquals) 3.dp else 0.dp
+                                    shadowElevation = when {
+                                        isShift && isShiftActive -> 1.dp
+                                        isShift -> 6.dp
+                                        isEquals -> 3.dp
+                                        else -> 0.dp
+                                    }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         if (secondaryLabel != null) {
