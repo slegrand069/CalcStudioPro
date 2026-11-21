@@ -7,6 +7,11 @@ import kotlin.math.pow
 
 class Statistics2DEngineTest {
     private fun points(vararg pairs: Pair<Double, Double>) = pairs.map { Statistics2DEngine.PairValue(it.first, it.second) }
+    private fun scored(model: Statistics2DEngine.Model, parameters: Int, cv: Double) = Statistics2DEngine.Comparison(
+        model,
+        Statistics2DEngine.FitResult(Statistics2DEngine.Fit(model, List(parameters) { 0.0 }, 0.0, 1.0, listOf(0.0), listOf(0.0), 1.0, 1.0, 0.0, parameters)),
+        cv
+    )
 
     @Test fun correlationsAndCovarianceHandleTiesAndDegeneracy() {
         val result = Statistics2DEngine.analyze(points(1.0 to 1.0, 2.0 to 2.0, 2.0 to 3.0, 4.0 to 4.0))!!
@@ -72,5 +77,44 @@ class Statistics2DEngineTest {
         assertFalse(Statistics2DEngine.fit(points(0.0 to 1.0, 1.0 to 2.0, 2.0 to 4.0), Statistics2DEngine.Model(Statistics2DEngine.Family.POWER)).available)
         assertNull(Statistics2DEngine.fit(points(1.0 to 1.0, 2.0 to 1.0, 3.0 to 1.0), Statistics2DEngine.Model(Statistics2DEngine.Family.LINEAR)).fit!!.rSquared)
         assertNull(Statistics2DEngine.analyze(listOf(Statistics2DEngine.PairValue(Double.NaN, 1.0))))
+    }
+
+    @Test fun recommendationUsesFivePercentBandThenFewerParametersAndCvTieBreak() {
+        val linear = Statistics2DEngine.Model(Statistics2DEngine.Family.LINEAR)
+        val quadratic = Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, 2)
+        val cubic = Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, 3)
+        val data = points(1.0 to 2.0, 2.0 to 4.0, 3.0 to 6.0, 4.0 to 8.0)
+        val rec = Statistics2DEngine.recommend(listOf(scored(cubic, 4, 10.49), scored(quadratic, 3, 10.5), scored(linear, 2, 10.5)), data)
+        assertEquals(linear, rec.model)
+        assertTrue(rec.message.contains("moins de paramètres"))
+        val tie = Statistics2DEngine.recommend(listOf(scored(quadratic, 3, 10.2), scored(linear, 2, 10.2)), data)
+        assertEquals(linear, tie.model)
+    }
+
+    @Test fun recommendationHandlesNearZeroScoresInYScaleAndUnreliableCandidates() {
+        val linear = Statistics2DEngine.Model(Statistics2DEngine.Family.LINEAR)
+        val quadratic = Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, 2)
+        val tinyY = points(1.0 to 1e-12, 2.0 to 2e-12, 3.0 to 3e-12, 4.0 to 4e-12)
+        val nearZero = Statistics2DEngine.recommend(listOf(scored(quadratic, 3, 1e-26), scored(linear, 2, 0.0)), tinyY)
+        assertEquals(linear, nearZero.model)
+
+        val unavailable = Statistics2DEngine.Comparison(linear, Statistics2DEngine.FitResult(unavailableReason = "X constant"), null, "LOOCV instable")
+        val noReliable = Statistics2DEngine.recommend(listOf(unavailable), tinyY)
+        assertNull(noReliable.model)
+        assertTrue(noReliable.message.contains("Aucune recommandation fiable"))
+
+        val limited = Statistics2DEngine.compare((1..81).map { Statistics2DEngine.PairValue(it.toDouble(), 2.0 * it) })
+        assertTrue(limited.all { it.loocvRmse == null && it.loocvUnavailableReason?.contains("80 couples") == true })
+        assertNull(Statistics2DEngine.recommend(limited, (1..81).map { Statistics2DEngine.PairValue(it.toDouble(), 2.0 * it) }).model)
+    }
+
+    @Test fun exactExponentialAndPowerDatasetsHaveReliableRecommendations() {
+        val expData = (0..8).map { x -> Statistics2DEngine.PairValue(x / 4.0, 2.0 * exp(0.7 * x / 4.0)) }
+        val expRecommendation = Statistics2DEngine.recommend(Statistics2DEngine.compare(expData), expData)
+        assertNotNull(expRecommendation.model)
+        assertTrue(expRecommendation.message.startsWith("Modèle "))
+
+        val powerData = (1..8).map { x -> Statistics2DEngine.PairValue(x.toDouble(), 3.0 * x.toDouble().pow(1.5)) }
+        assertNotNull(Statistics2DEngine.recommend(Statistics2DEngine.compare(powerData), powerData).model)
     }
 }

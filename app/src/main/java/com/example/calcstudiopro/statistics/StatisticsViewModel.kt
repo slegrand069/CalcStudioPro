@@ -45,7 +45,7 @@ data class StatisticsState(
     val comparisonLoading: Boolean = false,
     val selectedFit: Statistics2DEngine.FitResult = Statistics2DEngine.FitResult(unavailableReason = "Pas encore calculé."),
     val fitLoading: Boolean = false,
-    val recommendationMessage: String = "Recommandation indisponible : la règle de comparaison reste à valider."
+    val recommendationMessage: String = "Aucune recommandation fiable : lancez la comparaison des modèles."
 ) {
     val canSave: Boolean get() = result != null
     val activeDirty: Boolean get() = if (dimension == StatisticsDimension.ONE_D) oneDDirty else twoDDirty
@@ -159,7 +159,12 @@ class StatisticsViewModel(
         mutableState.value = mutableState.value.copy(comparisonLoading = true)
         scope.launch(Dispatchers.Default) {
             val result = Statistics2DEngine.compare(points)
-            if (request == comparisonRequest) mutableState.value = mutableState.value.copy(comparison = result, comparisonLoading = false)
+            val recommendation = Statistics2DEngine.recommend(result, points)
+            if (request == comparisonRequest) mutableState.value = mutableState.value.copy(
+                comparison = result,
+                recommendationMessage = recommendation.message,
+                comparisonLoading = false
+            )
         }
     }
     private fun computeSelectedFit(points: List<Statistics2DEngine.PairValue>, model: Statistics2DEngine.Model) {

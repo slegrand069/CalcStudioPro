@@ -1,5 +1,7 @@
 package com.example.calcstudiopro.statistics
 
+import android.widget.Toast
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -56,7 +59,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.ContentCopy
 import com.example.calcstudiopro.ui.components.bringFocusedFieldIntoView
 
 @Composable
@@ -317,9 +319,18 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                 Text(state.recommendationMessage, style = MaterialTheme.typography.bodySmall)
                 if (state.comparisonLoading) Text("Calcul de la validation croisée…")
                 state.comparison.forEach { comparison ->
-                    Metric(modelLabel(comparison.model), if (comparison.fitResult.fit == null) comparison.fitResult.unavailableReason.orEmpty()
-                    else "R² ajusté ${comparison.fitResult.fit.adjustedRSquared?.let(StatisticsEngine::format) ?: "—"} · RMSE ${StatisticsEngine.format(comparison.fitResult.fit.rmse)} · LOOCV ${comparison.loocvRmse?.let(StatisticsEngine::format) ?: "indisponible (effectif insuffisant ou limite de calcul)"}")
+                    val comparisonFit = comparison.fitResult.fit
+                    SectionCard(modelLabel(comparison.model)) {
+                        if (comparisonFit == null) Text("Modèle non admissible : ${comparison.fitResult.unavailableReason ?: "ajustement indisponible"}")
+                        else {
+                            Metric("R² ajusté", comparisonFit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Indisponible")
+                            Metric("RMSE (Y original)", StatisticsEngine.format(comparisonFit.rmse))
+                            Metric("RMSE LOOCV", comparison.loocvRmse?.let(StatisticsEngine::format)
+                                ?: comparison.loocvUnavailableReason ?: "Indisponible")
+                        }
+                    }
                 }
+                Text("Aide heuristique au choix du modèle ; elle ne garantit pas la qualité prédictive.", style = MaterialTheme.typography.bodySmall)
             }
             androidx.compose.material3.HorizontalDivider()
             Text("PRÉDICTION")
@@ -518,13 +529,16 @@ private fun Metric(label: String, value: String) {
 private fun Metric(label: String, value: String, exactValue: Double?) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Text(value, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-        if (exactValue != null) {
-            val clipboard = LocalClipboardManager.current
-            IconButton(onClick = { clipboard.setText(AnnotatedString(exactValue.toString())) }, modifier = Modifier.semantics {
-                contentDescription = "Copier avec précision complète"
-            }) { Icon(Icons.Filled.ContentCopy, contentDescription = null) }
-        }
+        val clipboard = LocalClipboardManager.current
+        val context = LocalContext.current
+        Text(value, modifier = Modifier.weight(1f).then(if (exactValue != null) Modifier.combinedClickable(
+            onClick = {},
+            onLongClickLabel = "Copier la valeur avec sa précision complète",
+            onLongClick = {
+                clipboard.setText(AnnotatedString(exactValue.toString()))
+                Toast.makeText(context, "Valeur copiée", Toast.LENGTH_SHORT).show()
+            }
+        ) else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
 

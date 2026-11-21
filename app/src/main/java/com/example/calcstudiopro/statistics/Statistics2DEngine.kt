@@ -106,7 +106,13 @@ object Statistics2DEngine {
     data class FitResult(val fit: Fit? = null, val unavailableReason: String? = null) {
         val available get() = fit != null
     }
-    data class Comparison(val model: Model, val fitResult: FitResult, val loocvRmse: Double?)
+    data class Comparison(
+        val model: Model,
+        val fitResult: FitResult,
+        val loocvRmse: Double?,
+        val loocvUnavailableReason: String? = null
+    )
+    data class Recommendation(val model: Model?, val message: String)
 
     fun analyze(points: List<PairValue>): Result? {
         if (points.isEmpty() || points.size > StatisticsEngine.MAX_VALUES || points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
@@ -176,15 +182,66 @@ object Statistics2DEngine {
         val models = listOf(Model(Family.LINEAR), Model(Family.POLYNOMIAL, 2), Model(Family.POLYNOMIAL, 3), Model(Family.POLYNOMIAL, 4), Model(Family.POLYNOMIAL, 5), Model(Family.EXPONENTIAL), Model(Family.LOGARITHMIC), Model(Family.POWER))
         return models.map { model ->
             val result = fit(points, model)
-            val cv = if (result.fit != null && points.size > result.fit.parameterCount + 1 && points.size <= 80) {
+            val cv = if (result.fit != null && result.fit.adjustedRSquared != null && points.size > result.fit.parameterCount && points.size <= 80) {
                 val errors = points.indices.mapNotNull { omitted ->
                     val training = points.filterIndexed { i, _ -> i != omitted }
                     fit(training, model).fit?.predict(points[omitted].x)?.let { (points[omitted].y - it).pow(2) }
                 }
                 if (errors.size == points.size) sqrt(errors.average()) else null
             } else null
-            Comparison(model, result, cv?.takeIf(Double::isFinite))
+            val finiteCv = cv?.takeIf(Double::isFinite)
+            val reason = when {
+                result.fit == null -> "Modèle non admissible : ${result.unavailableReason ?: "ajustement indisponible"}"
+                result.fit.adjustedRSquared == null -> "R² ajusté indisponible : effectif insuffisant ou Y constant."
+                points.size > 80 -> "LOOCV indisponible : limite provisoire de 80 couples dépassée."
+                points.size <= result.fit.parameterCount -> "LOOCV indisponible : effectif insuffisant pour réajuster chaque pli."
+                finiteCv == null -> "LOOCV indisponible : au moins un réajustement est instable."
+                else -> null
+            }
+            Comparison(model, result, finiteCv, reason)
         }
+    }
+
+    /** Chooses among reliable, comparable LOOCV scores; never changes the user's selected model. */
+    fun recommend(comparisons: List<Comparison>, points: List<PairValue>): Recommendation {
+        if (points.isEmpty() || points.any { !it.x.isFinite() || !it.y.isFinite() }) {
+            return Recommendation(null, "Aucune recommandation fiable : données absentes ou non finies.")
+        }
+        val candidates = comparisons.mapNotNull { comparison ->
+            val fit = comparison.fitResult.fit ?: return@mapNotNull null
+            val cv = comparison.loocvRmse ?: return@mapNotNull null
+            if (!cv.isFinite() || fit.adjustedRSquared?.isFinite() != true || !fit.rmse.isFinite()) return@mapNotNull null
+            comparison to cv
+        }
+        if (candidates.isEmpty()) {
+            val reason = when {
+                points.size > 80 -> "la LOOCV est limitée à 80 couples"
+                else -> "aucun modèle ne dispose d'indicateurs fiables et comparables"
+            }
+            return Recommendation(null, "Aucune recommandation fiable : $reason.")
+        }
+        val bestCv = candidates.minOf { it.second }
+        val yScale = points.maxOf { abs(it.y) }
+        val tolerance = maxOf(yScale * 1e-12, Math.ulp(yScale) * 32.0)
+        val threshold = bestCv * 1.05 + tolerance
+        val recommended = candidates.asSequence()
+            .filter { it.second <= threshold }
+            .sortedWith(compareBy<Pair<Comparison, Double>> { it.first.fitResult.fit!!.parameterCount }.thenBy { it.second })
+            .first().first
+        val simplerExists = candidates.any { (candidate, score) ->
+            candidate.fitResult.fit!!.parameterCount > recommended.fitResult.fit!!.parameterCount && score <= threshold
+        }
+        val explanation = if (simplerExists) "performances prédictives proches des modèles plus complexes, avec moins de paramètres"
+        else "meilleur RMSE LOOCV parmi les modèles admissibles comparables"
+        return Recommendation(recommended.model, "Modèle ${modelName(recommended.model)} recommandé : $explanation.")
+    }
+
+    fun modelName(model: Model): String = when (model.family) {
+        Family.LINEAR -> "linéaire"
+        Family.POLYNOMIAL -> "polynôme degré ${model.degree}"
+        Family.EXPONENTIAL -> "exponentiel"
+        Family.LOGARITHMIC -> "logarithmique"
+        Family.POWER -> "puissance"
     }
 
     private fun nonlinearProfile(x: List<Double>, y: List<Double>, transformX: (Double) -> Double): Pair<List<Double>, List<Double>>? {
