@@ -31,4 +31,37 @@ class StatisticsEngineTest {
         assertEquals("1,5", StatisticsEngine.format(1.5))
         assertTrue(StatisticsEngine.analyze("1e308 1e308") is StatisticsEngine.Analysis.Invalid)
     }
+
+    @Test fun advancedOneDimensionalIndicatorsAndType7Quantiles() {
+        val r = valid("1 2 2 4 5").result
+        assertEquals(2.0, r.modes.single(), 0.0)
+        assertTrue(r.hasDominantMode)
+        assertEquals(2.0, r.q1, 0.0)
+        assertEquals(2.0, r.median, 0.0)
+        assertEquals(4.0, r.q3, 0.0)
+        assertEquals(1.0, StatisticsEngine.quantile(listOf(1.0, 2.0, 3.0, 4.0), 0.0)!!, 0.0)
+        assertEquals(2.5, StatisticsEngine.quantile(listOf(1.0, 2.0, 3.0, 4.0), 50.0)!!, 0.0)
+        assertEquals(4.0, StatisticsEngine.quantile(listOf(1.0, 2.0, 3.0, 4.0), 100.0)!!, 0.0)
+        val noMode = valid("1 2 3").result
+        assertFalse(noMode.hasDominantMode)
+        assertTrue(noMode.modes.isEmpty())
+        val constant = valid("4 4 4 4").result
+        assertNull(constant.skewness)
+        assertEquals(0.0, constant.sampleCoefficientOfVariation!!, 0.0)
+        assertEquals(0.0, constant.populationStandardDeviation, 0.0)
+        val singleton = valid("5").result
+        assertNull(singleton.sampleVariance)
+        assertNull(singleton.sampleStandardDeviation)
+        assertNull(singleton.sampleCoefficientOfVariation)
+        assertNull(valid("-1 1").result.populationCoefficientOfVariation)
+    }
+
+    @Test fun frequencyAndIndividualRepresentationsAreEquivalent() {
+        val individual = StatisticsEngine.describe(listOf(1.0, 1.0, 2.0, 4.0))!!
+        val grouped = StatisticsEngine.describeFrequencies(listOf(
+            StatisticsEngine.Frequency(1.0, 2), StatisticsEngine.Frequency(2.0, 1), StatisticsEngine.Frequency(4.0, 1)
+        ))!!
+        assertEquals(individual, grouped)
+        assertNull(StatisticsEngine.describeFrequencies(listOf(StatisticsEngine.Frequency(1.0, 0))))
+    }
 }
