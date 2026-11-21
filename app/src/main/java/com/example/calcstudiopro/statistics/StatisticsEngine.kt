@@ -20,12 +20,12 @@ object StatisticsEngine {
         val populationVariance: Double = populationStandardDeviation * populationStandardDeviation,
         val sampleVariance: Double? = null,
         val sampleStandardDeviation: Double? = null,
-        val range: Double = maximum - minimum,
+        val range: Double? = (maximum - minimum).takeIf(Double::isFinite),
         val modes: List<Double> = emptyList(),
         val hasDominantMode: Boolean = false,
         val q1: Double = median,
         val q3: Double = median,
-        val interquartileRange: Double = q3 - q1,
+        val interquartileRange: Double? = (q3 - q1).takeIf(Double::isFinite),
         val populationCoefficientOfVariation: Double? = null,
         val sampleCoefficientOfVariation: Double? = null,
         val skewness: Double? = null,
@@ -109,16 +109,19 @@ object StatisticsEngine {
             val g2 = (m4 / n) / (m2 / n).pow(2) - 3.0
             ((n - 1.0) / ((n - 2.0) * (n - 3.0))) * ((n + 1.0) * g2 + 6.0)
         } else null
-        val values = listOf(sum, mean, median, sorted.first(), sorted.last(), popVar, popStd, q1, q3) + listOfNotNull(sampleVar, sampleStd, skew, kurtosis)
+        val range = sorted.last() - sorted.first()
+        val iqr = q3 - q1
+        val popCv = if (mean != 0.0) 100.0 * popStd / abs(mean) else null
+        val sampleCv = if (mean != 0.0 && sampleStd != null) 100.0 * sampleStd / abs(mean) else null
+        val values = listOf(sum, mean, median, sorted.first(), sorted.last(), popVar, popStd, q1, q3) + listOfNotNull(sampleVar, sampleStd, skew, kurtosis, popCv, sampleCv)
         if (values.any { !it.isFinite() }) return null
         return Result(
             count = n, sum = sum, mean = mean, median = median, minimum = sorted.first(), maximum = sorted.last(),
             populationStandardDeviation = popStd, populationVariance = popVar, sampleVariance = sampleVar,
-            sampleStandardDeviation = sampleStd, range = sorted.last() - sorted.first(), modes = modes,
-            hasDominantMode = dominant, q1 = q1, q3 = q3, interquartileRange = q3 - q1,
-            populationCoefficientOfVariation = if (mean != 0.0) 100.0 * popStd / abs(mean) else null,
-            sampleCoefficientOfVariation = if (mean != 0.0 && sampleStd != null) 100.0 * sampleStd / abs(mean) else null,
-            skewness = skew, excessKurtosis = kurtosis
+            sampleStandardDeviation = sampleStd, range = range.takeIf(Double::isFinite), modes = modes,
+            hasDominantMode = dominant, q1 = q1, q3 = q3, interquartileRange = iqr.takeIf(Double::isFinite),
+            populationCoefficientOfVariation = popCv, sampleCoefficientOfVariation = sampleCv,
+            skewness = skew?.takeIf(Double::isFinite), excessKurtosis = kurtosis?.takeIf(Double::isFinite)
         )
     }
 

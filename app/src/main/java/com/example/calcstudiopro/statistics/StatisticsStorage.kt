@@ -60,41 +60,49 @@ abstract class StatisticsDatabase : RoomDatabase() {
 enum class StatisticsDimension { ONE_D, TWO_D }
 
 sealed interface StoredStatisticsData {
-    data class OneD(val values: List<Double>) : StoredStatisticsData
+    data class OneD(val values: List<Double>, val grouped: Boolean = false) : StoredStatisticsData
     data class TwoD(val points: List<Statistics2DEngine.PairValue>) : StoredStatisticsData
 }
 
 /** Strict JSON codec: malformed persisted content is rejected rather than partially loaded. */
 object StatisticsDataCodec {
     fun encode(data: StoredStatisticsData): String = when (data) {
-        is StoredStatisticsData.OneD -> "{\"version\":1,\"dimension\":\"1D\",\"values\":[${data.values.joinToString(",") { number(it) }}]}"
+        is StoredStatisticsData.OneD -> "{\"version\":1,\"dimension\":\"1D\",\"grouped\":${data.grouped},\"values\":[${data.values.joinToString(",") { number(it) }}]}"
         is StoredStatisticsData.TwoD -> "{\"version\":1,\"dimension\":\"2D\",\"pairs\":[${data.points.joinToString(",") { "[${number(it.x)},${number(it.y)}]" }}]}"
     }
 
     fun decode(json: String): StoredStatisticsData? = runCatching {
-        val root = org.json.JSONObject(json)
-        require(root.optInt("version") == 1)
-        when (root.getString("dimension")) {
+        require(Regex("\\\"version\\\"\\s*:\\s*1").containsMatchIn(json))
+        val dimension = Regex("\\\"dimension\\\"\\s*:\\s*\\\"(1D|2D)\\\"").find(json)?.groupValues?.get(1) ?: error("Missing dimension")
+        when (dimension) {
             "1D" -> {
-                val array = root.getJSONArray("values")
-                require(array.length() <= StatisticsEngine.MAX_VALUES)
-                val values = (0 until array.length()).map { array.getDouble(it).also { value -> require(value.isFinite()) } }
-                StoredStatisticsData.OneD(values)
+                val content = Regex("\\\"values\\\"\\s*:\\s*\\[([^]]*)]").find(json)?.groupValues?.get(1) ?: error("Missing values")
+                val values = parseNumbers(content)
+                require(values.size <= StatisticsEngine.MAX_VALUES)
+                val grouped = Regex("\\\"grouped\\\"\\s*:\\s*(true|false)").find(json)?.groupValues?.get(1)?.toBoolean() ?: false
+                StoredStatisticsData.OneD(values, grouped)
             }
             "2D" -> {
-                val array = root.getJSONArray("pairs")
-                require(array.length() <= StatisticsEngine.MAX_VALUES)
-                val points = (0 until array.length()).map {
-                    val pair = array.getJSONArray(it); require(pair.length() == 2)
-                    Statistics2DEngine.PairValue(pair.getDouble(0), pair.getDouble(1)).also { p -> require(p.x.isFinite() && p.y.isFinite()) }
-                }
+                val content = Regex("\\\"pairs\\\"\\s*:\\s*\\[(.*)]", RegexOption.DOT_MATCHES_ALL).find(json)?.groupValues?.get(1) ?: error("Missing pairs")
+                val pairPattern = Regex("\\[\\s*($NUMBER_PATTERN)\\s*,\\s*($NUMBER_PATTERN)\\s*]")
+                val matches = pairPattern.findAll(content).toList()
+                val remainder = pairPattern.replace(content, "").replace(",", "").trim()
+                require(remainder.isEmpty() && matches.size <= StatisticsEngine.MAX_VALUES)
+                val points = matches.map { Statistics2DEngine.PairValue(it.groupValues[1].toDouble(), it.groupValues[2].toDouble()) }
+                require(points.all { it.x.isFinite() && it.y.isFinite() })
                 StoredStatisticsData.TwoD(points)
             }
             else -> error("Unknown statistics dimension")
         }
     }.getOrNull()
 
+    private fun parseNumbers(content: String): List<Double> {
+        if (content.isBlank()) return emptyList()
+        return content.split(',').map { token -> token.trim().toDouble().also { require(it.isFinite()) } }
+    }
+
     private fun number(value: Double): String { require(value.isFinite()); return java.lang.Double.toString(value) }
+    private const val NUMBER_PATTERN = "[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?"
 }
 
 /** Context-aware input parsing. Decimal commas are accepted; commas never split observations. */
@@ -106,7 +114,9 @@ object StatisticsInputParser {
 
     fun oneD(text: String): Parsed<List<Double>> {
         if (text.isBlank()) return Parsed.Valid(emptyList())
-        val groups = text.trim().split(';')
+        val normalized = text.trim()
+        normalized.lines().forEachIndexed { index, line -> if (line.isBlank()) return Parsed.Invalid("Ligne vide.", index + 1) }
+        val groups = normalized.split(';')
         if (groups.any { it.isBlank() }) return Parsed.Invalid("Une valeur manque entre deux séparateurs.")
         val tokens = groups.flatMap { it.trim().split(Regex("\\s+")).filter(String::isNotEmpty) }
         if (tokens.size > StatisticsEngine.MAX_VALUES) return Parsed.Invalid("La série est limitée à ${StatisticsEngine.MAX_VALUES} valeurs.")
@@ -116,13 +126,29 @@ object StatisticsInputParser {
         return Parsed.Valid(values)
     }
 
+    fun frequencies(text: String): Parsed<List<StatisticsEngine.Frequency>> {
+        if (text.isBlank()) return Parsed.Valid(emptyList())
+        val rows = ArrayList<StatisticsEngine.Frequency>()
+        text.lines().forEachIndexed { index, raw ->
+            if (raw.isBlank()) return@forEachIndexed
+            val cells = if (raw.contains('\t')) raw.split('\t') else raw.split(';')
+            if (cells.size != 2) return Parsed.Invalid("Chaque ligne doit contenir une valeur et un effectif séparés par un point-virgule ou une tabulation.", index + 1)
+            val value = StatisticsEngine.parseNumber(cells[0]) ?: return Parsed.Invalid("Valeur invalide : « ${cells[0]} ».", index + 1)
+            val count = cells[1].trim().toIntOrNull()?.takeIf { it > 0 } ?: return Parsed.Invalid("L'effectif doit être un entier strictement positif.", index + 1)
+            rows += StatisticsEngine.Frequency(value, count)
+        }
+        val total = rows.sumOf { it.count.toLong() }
+        if (total > StatisticsEngine.MAX_VALUES) return Parsed.Invalid("La série est limitée à ${StatisticsEngine.MAX_VALUES} observations.")
+        return Parsed.Valid(rows)
+    }
+
     /** Accepts spreadsheet TSV or semicolon rows. A comma is reserved for French decimals. */
     fun twoD(text: String): Parsed<List<Statistics2DEngine.PairValue>> {
         if (text.isBlank()) return Parsed.Valid(emptyList())
-        val lines = text.lines()
+        val lines = text.trim().lines()
         val pairs = ArrayList<Statistics2DEngine.PairValue>()
         lines.forEachIndexed { index, raw ->
-            if (raw.isBlank()) return@forEachIndexed
+            if (raw.isBlank()) return Parsed.Invalid("Ligne vide.", index + 1)
             val line = index + 1
             val cells = when {
                 raw.contains('\t') -> raw.split('\t')

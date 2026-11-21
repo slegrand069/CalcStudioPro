@@ -33,4 +33,19 @@ class StatisticsViewModelTest {
         assertNull(repo.saved.single().reusableValue)
         assertTrue(repo.saved.single().detailsJson!!.contains("\"version\":1"))
     }
+
+    @Test fun groupedEditorPreservesDistributionAndOneDTwoDSessionsStaySeparate() {
+        val vm = StatisticsViewModel()
+        vm.editOneD("1\n1\n2,5")
+        vm.setOneDGrouped(true)
+        assertEquals("1.0;2\n2.5;1", vm.state.value.oneDFrequencyText)
+        vm.finishEditing()
+        assertEquals(listOf(1.0, 1.0, 2.5), vm.state.value.oneDValues)
+        vm.selectDimension(StatisticsDimension.TWO_D)
+        vm.editTwoD("3\t4\n5\t6")
+        vm.finishEditing()
+        assertEquals(2, vm.state.value.twoDPoints.size)
+        vm.selectDimension(StatisticsDimension.ONE_D)
+        assertEquals(listOf(1.0, 1.0, 2.5), vm.state.value.oneDValues)
+    }
 }

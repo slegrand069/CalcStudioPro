@@ -57,6 +57,7 @@ import com.example.calcstudiopro.converter.ConverterViewModel
 import com.example.calcstudiopro.ui.components.ModeSelectorDialog
 import com.example.calcstudiopro.statistics.StatisticsRoute
 import com.example.calcstudiopro.statistics.StatisticsViewModel
+import com.example.calcstudiopro.statistics.StatisticsDatabase
 import com.example.calcstudiopro.geometry.GeometryRoute
 import com.example.calcstudiopro.geometry.GeometryViewModel
 import com.example.calcstudiopro.arithmetic.ArithmeticRoute
@@ -98,7 +99,7 @@ class MainActivity : ComponentActivity() {
                     factory = remember { ConverterViewModel.Factory(historyRepository) }
                 )
                 val statisticsViewModel: StatisticsViewModel = viewModel(
-                    factory = remember { StatisticsViewModel.Factory(historyRepository) }
+                    factory = remember { StatisticsViewModel.Factory(historyRepository, StatisticsDatabase.getInstance(applicationContext).statisticsDao()) }
                 )
                 val arithmeticViewModel: ArithmeticViewModel = viewModel(factory = remember { ArithmeticViewModel.Factory(historyRepository) })
                 val geometryViewModel: GeometryViewModel = viewModel(

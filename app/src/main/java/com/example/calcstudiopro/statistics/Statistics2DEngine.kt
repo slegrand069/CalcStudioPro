@@ -32,6 +32,14 @@ object Statistics2DEngine {
         val rmse: Double,
         val parameterCount: Int
     ) {
+        fun equation(): String = when (model.family) {
+            Family.LINEAR -> "ŷ = ${coefficients[0]} + ${coefficients[1]}·((x − $xCenter)/$xScale)"
+            Family.POLYNOMIAL -> "ŷ = " + coefficients.mapIndexed { index, value -> "$value·((x − $xCenter)/$xScale)^$index" }.joinToString(" + ")
+            Family.LOGARITHMIC -> "ŷ = ${coefficients[0]} + ${coefficients[1]}·ln(x)"
+            Family.EXPONENTIAL -> "ŷ = ${coefficients[0]}·exp(${coefficients[1]}·x)"
+            Family.POWER -> "ŷ = ${coefficients[0]}·x^${coefficients[1]}"
+        }
+
         fun predict(x: Double): Double? {
             if (!x.isFinite()) return null
             val value = when (model.family) {
@@ -59,8 +67,8 @@ object Statistics2DEngine {
         val normalizedCov = cov / n
         val covariancePop = normalizedCov * maxAbs(xs) * maxAbs(ys)
         val covarianceSample = if (n > 1) covariancePop * n / (n - 1) else null
-        val denominator = xStats.populationStandardDeviation * yStats.populationStandardDeviation
-        val pearson = if (n > 1 && denominator > 0.0) (covariancePop / denominator).coerceIn(-1.0, 1.0) else null
+        val denominator = (xStats.populationStandardDeviation / maxAbs(xs)) * (yStats.populationStandardDeviation / maxAbs(ys))
+        val pearson = if (n > 1 && denominator > 0.0) (normalizedCov / denominator).coerceIn(-1.0, 1.0) else null
         val rx = ranks(xs); val ry = ranks(ys)
         val spearman = correlation(rx, ry)
         return Result(n, xStats, yStats, covariancePop.takeIf(Double::isFinite), covarianceSample?.takeIf(Double::isFinite), pearson, spearman)
