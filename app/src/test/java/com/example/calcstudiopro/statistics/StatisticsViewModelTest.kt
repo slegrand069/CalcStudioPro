@@ -5,9 +5,12 @@ import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withTimeout
+import kotlin.math.pow
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -47,5 +50,26 @@ class StatisticsViewModelTest {
         assertEquals(2, vm.state.value.twoDPoints.size)
         vm.selectDimension(StatisticsDimension.ONE_D)
         assertEquals(listOf(1.0, 1.0, 2.5), vm.state.value.oneDValues)
+    }
+
+    @Test fun comparisonAndRecommendationRefreshWhenTwoDDatasetIsReplaced() = runBlocking {
+        val vm = StatisticsViewModel(coroutineScopeOverride = CoroutineScope(Dispatchers.Unconfined))
+        vm.selectDimension(StatisticsDimension.TWO_D)
+        vm.editTwoD((1..8).joinToString("\n") { "$it\t${2.0 * it + 1.0}" })
+        vm.finishEditing()
+        vm.compareModels()
+        val first = withTimeout(15_000) {
+            vm.state.first { it.twoDPoints.isNotEmpty() && it.comparisonData == it.twoDPoints && !it.comparisonLoading }
+        }
+        assertEquals(Statistics2DEngine.Family.LINEAR, first.recommendedModel?.family)
+
+        vm.editTwoD((1..8).joinToString("\n") { "$it\t${3.0 * it.toDouble().pow(1.5)}" })
+        vm.finishEditing()
+        val second = withTimeout(15_000) {
+            vm.state.first { it.comparisonData == it.twoDPoints && it.twoDPoints != first.twoDPoints && !it.comparisonLoading }
+        }
+        assertNotEquals(first.comparisonData, second.comparisonData)
+        assertEquals(Statistics2DEngine.recommend(second.comparison, second.twoDPoints).message, second.recommendationMessage)
+        assertEquals(Statistics2DEngine.Family.POWER, second.recommendedModel?.family)
     }
 }

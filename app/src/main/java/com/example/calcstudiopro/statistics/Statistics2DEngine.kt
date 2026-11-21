@@ -21,6 +21,7 @@ object Statistics2DEngine {
     )
     enum class Family { LINEAR, POLYNOMIAL, EXPONENTIAL, LOGARITHMIC, POWER }
     data class Model(val family: Family, val degree: Int = 2)
+    data class DisplayCoefficient(val symbol: String, val value: Double)
     data class Fit(
         val model: Model,
         val coefficients: List<Double>,
@@ -38,7 +39,7 @@ object Statistics2DEngine {
                 val slope = coefficients[1] / xScale
                 val intercept = coefficients[0] - coefficients[1] * (xCenter / xScale)
                 if (abs(xCenter / xScale) <= 1e4 && slope.isFinite() && intercept.isFinite()) linearEquation(intercept, slope)
-                else "ŷ = ${format(coefficients[0])} + ${signedTerm(coefficients[1], "u")}; u = (x − ${format(xCenter)})/${format(xScale)}"
+                else "ŷ = ${format(coefficients[0])}${signedTerm(coefficients[1], "u")}; u = (x − ${format(xCenter)})/${format(xScale)}"
             }
             Family.POLYNOMIAL -> {
                 val expanded = expandPolynomial(coefficients, xCenter, xScale)
@@ -48,6 +49,23 @@ object Statistics2DEngine {
             Family.LOGARITHMIC -> "ŷ = ${format(coefficients[0])}${signedTerm(coefficients[1], "ln(x)")}"
             Family.EXPONENTIAL -> "ŷ = ${format(coefficients[0])}·exp(${format(coefficients[1])}·x)"
             Family.POWER -> "ŷ = ${format(coefficients[0])}·x^${format(coefficients[1])}"
+        }
+
+        /** Coefficients in the same basis and order displayed by [equation]. */
+        fun displayCoefficients(): List<DisplayCoefficient> = when (model.family) {
+            Family.LINEAR -> {
+                val slope = coefficients[1] / xScale
+                val intercept = coefficients[0] - coefficients[1] * (xCenter / xScale)
+                if (abs(xCenter / xScale) <= 1e4 && slope.isFinite() && intercept.isFinite()) listOf(
+                    DisplayCoefficient("a", intercept), DisplayCoefficient("b", slope)
+                ) else listOf(DisplayCoefficient("c₀ (u)", coefficients[0]), DisplayCoefficient("c₁ (u)", coefficients[1]))
+            }
+            Family.POLYNOMIAL -> expandPolynomial(coefficients, xCenter, xScale)?.mapIndexed { power, value ->
+                DisplayCoefficient("a$power", value)
+            } ?: coefficients.mapIndexed { power, value -> DisplayCoefficient("c$power (u)", value) }
+            Family.LOGARITHMIC, Family.EXPONENTIAL, Family.POWER -> listOf(
+                DisplayCoefficient("a", coefficients[0]), DisplayCoefficient("b", coefficients[1])
+            )
         }
 
         fun predict(x: Double): Double? {

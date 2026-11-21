@@ -2,6 +2,7 @@ package com.example.calcstudiopro.statistics
 
 import android.widget.Toast
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -12,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -269,8 +272,10 @@ private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Resul
 private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Result?, fit: Statistics2DEngine.Fit?, viewModel: StatisticsViewModel, modifier: Modifier, onShowAll: () -> Unit) {
     var modelExpanded by remember { mutableStateOf(false) }
     var comparisonExpanded by remember { mutableStateOf(false) }
+    var expandedComparisonModel by remember { mutableStateOf<Statistics2DEngine.Model?>(null) }
     var copyColumn by remember { mutableStateOf<Boolean?>(null) }
     val scroll = rememberScrollState()
+    val comparisonHorizontalScroll = rememberScrollState()
     Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionCard("DONNÉES · ${state.twoDPoints.size} couples · ${state.twoDPoints.distinct().size} couples distincts") {
             if (state.twoDPoints.isEmpty()) Text("Aucune donnée. Modifiez la série pour commencer.") else DataPreview(state.twoDPoints.map { "(${StatisticsEngine.format(it.x)} ; ${StatisticsEngine.format(it.y)})" }, onShowAll)
@@ -308,29 +313,78 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
             else if (fit == null) Text(state.selectedFit.unavailableReason ?: "Modèle indisponible", color = MaterialTheme.colorScheme.error)
             else {
                 Metric("Équation", fit.equation())
-                Metric("Coefficients", fit.coefficients.joinToString(" · ") { StatisticsEngine.format(it) })
+                Text("Coefficients correspondant à l’équation", style = MaterialTheme.typography.labelMedium)
+                fit.displayCoefficients().forEach { coefficient ->
+                    Metric(coefficient.symbol, StatisticsEngine.format(coefficient.value), coefficient.value)
+                }
                 Metric("Paramètres estimés", "${fit.parameterCount}, constante incluse")
-                Metric("R²", fit.rSquared?.let(StatisticsEngine::format) ?: "Non défini (Y constant)")
-                Metric("R² ajusté", fit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Indisponible (effectif insuffisant)")
-                Metric("RMSE (Y original)", StatisticsEngine.format(fit.rmse))
+                Metric("R²", fit.rSquared?.let(StatisticsEngine::format) ?: "Non défini (Y constant)", fit.rSquared)
+                Metric("R² ajusté", fit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Indisponible (effectif insuffisant)", fit.adjustedRSquared)
+                Metric("RMSE (Y original)", StatisticsEngine.format(fit.rmse), fit.rmse)
             }
-            TextButton(onClick = { comparisonExpanded = !comparisonExpanded; if (!comparisonExpanded) viewModel.compareModels() }) { Text(if (comparisonExpanded) "▾ Comparer les modèles" else "▸ Comparer les modèles") }
+            TextButton(onClick = {
+                val expanding = !comparisonExpanded
+                comparisonExpanded = expanding
+                if (expanding) viewModel.compareModels()
+            }) { Text(if (comparisonExpanded) "▾ Comparer les modèles" else "▸ Comparer les modèles") }
             if (comparisonExpanded) {
-                Text(state.recommendationMessage, style = MaterialTheme.typography.bodySmall)
-                if (state.comparisonLoading) Text("Calcul de la validation croisée…")
-                state.comparison.forEach { comparison ->
-                    val comparisonFit = comparison.fitResult.fit
-                    SectionCard(modelLabel(comparison.model)) {
-                        if (comparisonFit == null) Text("Modèle non admissible : ${comparison.fitResult.unavailableReason ?: "ajustement indisponible"}")
-                        else {
-                            Metric("R² ajusté", comparisonFit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Indisponible")
-                            Metric("RMSE (Y original)", StatisticsEngine.format(comparisonFit.rmse))
-                            Metric("RMSE LOOCV", comparison.loocvRmse?.let(StatisticsEngine::format)
-                                ?: comparison.loocvUnavailableReason ?: "Indisponible")
+                if (state.comparisonData != state.twoDPoints) {
+                    Text(if (state.comparisonLoading) "Actualisation de la comparaison…" else "La comparaison sera recalculée pour les données actuelles.")
+                } else {
+                    Text(state.recommendationMessage, style = MaterialTheme.typography.bodySmall)
+                    val headerModifier = Modifier.horizontalScroll(comparisonHorizontalScroll)
+                    Row(headerModifier) {
+                        Row(Modifier.width(350.dp).padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            Text("Modèle", Modifier.width(154.dp), fontWeight = FontWeight.Bold)
+                            Text("R² ajusté", Modifier.width(80.dp), fontWeight = FontWeight.Bold)
+                            Text("RMSE LOOCV", Modifier.width(100.dp), fontWeight = FontWeight.Bold)
                         }
                     }
+                    state.comparison.forEach { comparison ->
+                        val modelFit = comparison.fitResult.fit
+                        val recommended = comparison.model == state.recommendedModel
+                        val expanded = comparison.model == expandedComparisonModel
+                        Row(Modifier.horizontalScroll(comparisonHorizontalScroll)) {
+                            Surface(
+                                modifier = Modifier.width(350.dp).clickable {
+                                    expandedComparisonModel = if (expanded) null else comparison.model
+                                },
+                                color = if (recommended) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    Row(Modifier.width(154.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                        Text(modelLabel(comparison.model), Modifier.weight(1f))
+                                        if (recommended) Text("★", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.semantics {
+                                            contentDescription = "Modèle recommandé"
+                                        })
+                                        Text(if (expanded) "▾" else "›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    CopyableText(modelFit?.adjustedRSquared?.let(StatisticsEngine::format) ?: "—", modelFit?.adjustedRSquared, Modifier.width(80.dp))
+                                    CopyableText(comparison.loocvRmse?.let(StatisticsEngine::format) ?: "—", comparison.loocvRmse, Modifier.width(100.dp))
+                                }
+                            }
+                        }
+                        if (expanded) {
+                            Column(Modifier.fillMaxWidth().padding(start = 8.dp, top = 5.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (modelFit == null) {
+                                    Text("Modèle non admissible : ${comparison.fitResult.unavailableReason ?: "ajustement indisponible"}", color = MaterialTheme.colorScheme.error)
+                                } else {
+                                    Metric("Équation", modelFit.equation())
+                                    Text("Coefficients de l’équation", style = MaterialTheme.typography.labelMedium)
+                                    modelFit.displayCoefficients().forEach { coefficient ->
+                                        Metric(coefficient.symbol, StatisticsEngine.format(coefficient.value), coefficient.value)
+                                    }
+                                    Metric("RMSE d’entraînement (Y original)", StatisticsEngine.format(modelFit.rmse), modelFit.rmse)
+                                    Metric("Paramètres estimés", "${modelFit.parameterCount}, constante incluse")
+                                    if (modelFit.adjustedRSquared == null) Text("R² ajusté indisponible : effectif insuffisant ou Y constant.")
+                                    if (comparison.loocvRmse == null) Text(comparison.loocvUnavailableReason ?: "RMSE LOOCV indisponible.")
+                                }
+                            }
+                        }
+                    }
+                    Text("Appui long sur une valeur pour la copier. Aide heuristique, sans garantie prédictive.", style = MaterialTheme.typography.bodySmall)
                 }
-                Text("Aide heuristique au choix du modèle ; elle ne garantit pas la qualité prédictive.", style = MaterialTheme.typography.bodySmall)
             }
             androidx.compose.material3.HorizontalDivider()
             Text("PRÉDICTION")
@@ -540,6 +594,20 @@ private fun Metric(label: String, value: String, exactValue: Double?) {
             }
         ) else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
+}
+
+@Composable
+private fun CopyableText(value: String, exactValue: Double?, modifier: Modifier = Modifier) {
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Text(value, modifier = modifier.then(if (exactValue != null) Modifier.combinedClickable(
+        onClick = {},
+        onLongClickLabel = "Copier la valeur avec sa précision complète",
+        onLongClick = {
+            clipboard.setText(AnnotatedString(exactValue.toString()))
+            Toast.makeText(context, "Valeur copiée", Toast.LENGTH_SHORT).show()
+        }
+    ) else Modifier), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
 }
 
 @Composable

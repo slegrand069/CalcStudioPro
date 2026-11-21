@@ -42,6 +42,8 @@ data class StatisticsState(
     val model: Statistics2DEngine.Model = Statistics2DEngine.Model(Statistics2DEngine.Family.LINEAR),
     val predictionInput: String = "",
     val comparison: List<Statistics2DEngine.Comparison> = emptyList(),
+    val comparisonData: List<Statistics2DEngine.PairValue>? = null,
+    val recommendedModel: Statistics2DEngine.Model? = null,
     val comparisonLoading: Boolean = false,
     val selectedFit: Statistics2DEngine.FitResult = Statistics2DEngine.FitResult(unavailableReason = "Pas encore calculé."),
     val fitLoading: Boolean = false,
@@ -59,6 +61,7 @@ class StatisticsViewModel(
 ) : ViewModel() {
     private var fitRequest = 0
     private var comparisonRequest = 0
+    private var comparisonRequested = false
     private val scope get() = coroutineScopeOverride ?: viewModelScope
     private val mutableState = MutableStateFlow(StatisticsState())
     val state = mutableState.asStateFlow()
@@ -141,6 +144,7 @@ class StatisticsViewModel(
                     mutableState.value = next
                     persistSession(next, StatisticsDimension.TWO_D)
                     computeSelectedFit(parsed.value, next.model)
+                    twoDPointsChanged(parsed.value)
                 }
             }
         }
@@ -154,18 +158,35 @@ class StatisticsViewModel(
     }
     fun setPrediction(value: String) { mutableState.value = mutableState.value.copy(predictionInput = value) }
     fun compareModels() {
+        comparisonRequested = true
         val points = mutableState.value.twoDPoints
+        startComparison(points)
+    }
+    private fun startComparison(points: List<Statistics2DEngine.PairValue>) {
         val request = ++comparisonRequest
-        mutableState.value = mutableState.value.copy(comparisonLoading = true)
+        mutableState.value = mutableState.value.copy(
+            comparison = emptyList(), comparisonData = null, recommendedModel = null, comparisonLoading = true,
+            recommendationMessage = "Comparaison en cours…"
+        )
         scope.launch(Dispatchers.Default) {
             val result = Statistics2DEngine.compare(points)
             val recommendation = Statistics2DEngine.recommend(result, points)
             if (request == comparisonRequest) mutableState.value = mutableState.value.copy(
                 comparison = result,
+                comparisonData = points,
+                recommendedModel = recommendation.model,
                 recommendationMessage = recommendation.message,
                 comparisonLoading = false
             )
         }
+    }
+    private fun twoDPointsChanged(points: List<Statistics2DEngine.PairValue>) {
+        comparisonRequest++ // Discard an in-flight result for the previous dataset.
+        mutableState.value = mutableState.value.copy(
+            comparison = emptyList(), comparisonData = null, recommendedModel = null, comparisonLoading = false,
+            recommendationMessage = "Aucune recommandation fiable : les données ont changé."
+        )
+        if (comparisonRequested) startComparison(points)
     }
     private fun computeSelectedFit(points: List<Statistics2DEngine.PairValue>, model: Statistics2DEngine.Model) {
         val request = ++fitRequest
@@ -198,6 +219,7 @@ class StatisticsViewModel(
         if (points.size > StatisticsEngine.MAX_VALUES) { mutableState.value = s.copy(storageError = "La série est limitée à ${StatisticsEngine.MAX_VALUES} couples."); return }
         mutableState.value = s.copy(pasteUndo = StoredStatisticsData.TwoD(s.twoDPoints), twoDPoints = points, twoDDirty = true,
             twoDText = points.joinToString("\n") { "${it.x}\t${it.y}" })
+        twoDPointsChanged(points)
     }
 
     fun undoPaste() {
@@ -205,7 +227,10 @@ class StatisticsViewModel(
         when (val undo = s.pasteUndo) {
             is StoredStatisticsData.OneD -> mutableState.value = s.copy(oneDValues = undo.values, oneDText = undo.values.joinToString("\n"),
                 oneDFrequencyText = undo.values.groupingBy { it }.eachCount().toSortedMap().entries.joinToString("\n") { "${it.key};${it.value}" }, input = undo.values.joinToString(" "), pasteUndo = null)
-            is StoredStatisticsData.TwoD -> mutableState.value = s.copy(twoDPoints = undo.points, twoDText = undo.points.joinToString("\n") { "${it.x}\t${it.y}" }, pasteUndo = null)
+            is StoredStatisticsData.TwoD -> {
+                mutableState.value = s.copy(twoDPoints = undo.points, twoDText = undo.points.joinToString("\n") { "${it.x}\t${it.y}" }, pasteUndo = null)
+                twoDPointsChanged(undo.points)
+            }
             null -> Unit
         }
     }
@@ -271,7 +296,10 @@ class StatisticsViewModel(
             }
             mutableState.value = next
             persistSession(next, series.dimension.let { runCatching { StatisticsDimension.valueOf(it) }.getOrDefault(StatisticsDimension.ONE_D) })
-            if (data is StoredStatisticsData.TwoD) computeSelectedFit(data.points, next.model)
+            if (data is StoredStatisticsData.TwoD) {
+                computeSelectedFit(data.points, next.model)
+                twoDPointsChanged(data.points)
+            }
         }
     }
 
@@ -312,7 +340,10 @@ class StatisticsViewModel(
             }
             mutableState.value = next
             persistSession(next, if (target.dimension == StatisticsDimension.TWO_D.name) StatisticsDimension.TWO_D else StatisticsDimension.ONE_D)
-            if (targetData is StoredStatisticsData.TwoD) computeSelectedFit(targetData.points, next.model)
+            if (targetData is StoredStatisticsData.TwoD) {
+                computeSelectedFit(targetData.points, next.model)
+                twoDPointsChanged(targetData.points)
+            }
         }
     }
 
@@ -366,7 +397,10 @@ class StatisticsViewModel(
                 oneDDirty = session.dirty, oneDSourceSeriesId = session.sourceSeriesId,
                 sourceSeriesId = if (s.dimension == StatisticsDimension.ONE_D) session.sourceSeriesId else s.sourceSeriesId)
             is StoredStatisticsData.TwoD -> s.copy(twoDPoints = data.points, twoDDirty = session.dirty, twoDSourceSeriesId = session.sourceSeriesId,
-                sourceSeriesId = if (s.dimension == StatisticsDimension.TWO_D) session.sourceSeriesId else s.sourceSeriesId).also { computeSelectedFit(data.points, s.model) }
+                sourceSeriesId = if (s.dimension == StatisticsDimension.TWO_D) session.sourceSeriesId else s.sourceSeriesId).also {
+                computeSelectedFit(data.points, s.model)
+                twoDPointsChanged(data.points)
+            }
         }
     }
 

@@ -117,4 +117,41 @@ class Statistics2DEngineTest {
         val powerData = (1..8).map { x -> Statistics2DEngine.PairValue(x.toDouble(), 3.0 * x.toDouble().pow(1.5)) }
         assertNotNull(Statistics2DEngine.recommend(Statistics2DEngine.compare(powerData), powerData).model)
     }
+
+    @Test fun displayedCoefficientsUseTheSameBasisAsEachOfTheEightEquations() {
+        fun verify(fit: Statistics2DEngine.Fit, x: Double) {
+            val entries = fit.displayCoefficients()
+            val values = entries.map { it.value }
+            val displayedPrediction = when (fit.model.family) {
+                Statistics2DEngine.Family.LINEAR -> if (entries.first().symbol.startsWith("c")) {
+                    values[0] + values[1] * ((x - fit.xCenter) / fit.xScale)
+                } else values[0] + values[1] * x
+                Statistics2DEngine.Family.POLYNOMIAL -> {
+                    val basisValue = if (entries.firstOrNull()?.symbol?.startsWith("c") == true) (x - fit.xCenter) / fit.xScale else x
+                    values.indices.sumOf { values[it] * basisValue.pow(it) }
+                }
+                Statistics2DEngine.Family.EXPONENTIAL -> values[0] * exp(values[1] * x)
+                Statistics2DEngine.Family.LOGARITHMIC -> values[0] + values[1] * kotlin.math.ln(x)
+                Statistics2DEngine.Family.POWER -> values[0] * x.pow(values[1])
+            }
+            assertEquals(fit.model.toString(), fit.predict(x)!!, displayedPrediction, 1e-7 * maxOf(1.0, kotlin.math.abs(displayedPrediction)))
+            assertTrue(fit.equation().startsWith("ŷ = "))
+        }
+
+        val linearData = (1..8).map { Statistics2DEngine.PairValue(it.toDouble(), 2.0 + 3.0 * it) }
+        verify(Statistics2DEngine.fit(linearData, Statistics2DEngine.Model(Statistics2DEngine.Family.LINEAR)).fit!!, 5.5)
+        for (degree in 2..5) {
+            val polynomialData = (-5..5).map { ix ->
+                val x = ix.toDouble()
+                Statistics2DEngine.PairValue(x, (0..degree).sumOf { (it + 1.0) * x.pow(it) })
+            }
+            verify(Statistics2DEngine.fit(polynomialData, Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, degree)).fit!!, 0.75)
+        }
+        val expData = (0..8).map { Statistics2DEngine.PairValue(it / 4.0, 2.0 * exp(0.7 * it / 4.0)) }
+        verify(Statistics2DEngine.fit(expData, Statistics2DEngine.Model(Statistics2DEngine.Family.EXPONENTIAL)).fit!!, 0.8)
+        val logData = (1..8).map { Statistics2DEngine.PairValue(it.toDouble(), 4.0 + 2.0 * kotlin.math.ln(it.toDouble())) }
+        verify(Statistics2DEngine.fit(logData, Statistics2DEngine.Model(Statistics2DEngine.Family.LOGARITHMIC)).fit!!, 5.5)
+        val powerData = (1..8).map { Statistics2DEngine.PairValue(it.toDouble(), 3.0 * it.toDouble().pow(1.5)) }
+        verify(Statistics2DEngine.fit(powerData, Statistics2DEngine.Model(Statistics2DEngine.Family.POWER)).fit!!, 5.5)
+    }
 }
