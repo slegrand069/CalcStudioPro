@@ -47,7 +47,8 @@ data class StatisticsState(
     val comparisonLoading: Boolean = false,
     val selectedFit: Statistics2DEngine.FitResult = Statistics2DEngine.FitResult(unavailableReason = "Pas encore calculé."),
     val fitLoading: Boolean = false,
-    val recommendationMessage: String = "Aucune recommandation fiable : lancez la comparaison des modèles."
+    val recommendationMessage: String = "Aucune recommandation fiable : lancez la comparaison des modèles.",
+    val recommendationWarning: String? = null
 ) {
     val canSave: Boolean get() = result != null
     val activeDirty: Boolean get() = if (dimension == StatisticsDimension.ONE_D) oneDDirty else twoDDirty
@@ -166,7 +167,7 @@ class StatisticsViewModel(
         val request = ++comparisonRequest
         mutableState.value = mutableState.value.copy(
             comparison = emptyList(), comparisonData = null, recommendedModel = null, comparisonLoading = true,
-            recommendationMessage = "Comparaison en cours…"
+            recommendationMessage = "Comparaison en cours…", recommendationWarning = null
         )
         scope.launch(Dispatchers.Default) {
             val result = Statistics2DEngine.compare(points)
@@ -176,6 +177,7 @@ class StatisticsViewModel(
                 comparisonData = points,
                 recommendedModel = recommendation.model,
                 recommendationMessage = recommendation.message,
+                recommendationWarning = recommendation.warning,
                 comparisonLoading = false
             )
         }
@@ -184,7 +186,7 @@ class StatisticsViewModel(
         comparisonRequest++ // Discard an in-flight result for the previous dataset.
         mutableState.value = mutableState.value.copy(
             comparison = emptyList(), comparisonData = null, recommendedModel = null, comparisonLoading = false,
-            recommendationMessage = "Aucune recommandation fiable : les données ont changé."
+            recommendationMessage = "Aucune recommandation fiable : les données ont changé.", recommendationWarning = null
         )
         if (comparisonRequested) startComparison(points)
     }

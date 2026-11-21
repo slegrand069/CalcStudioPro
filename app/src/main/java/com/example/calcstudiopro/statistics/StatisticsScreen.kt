@@ -319,7 +319,8 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                 }
                 Metric("Paramètres estimés", "${fit.parameterCount}, constante incluse")
                 Metric("R²", fit.rSquared?.let(StatisticsEngine::format) ?: "Non défini (Y constant)", fit.rSquared)
-                Metric("R² ajusté", fit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Indisponible (effectif insuffisant)", fit.adjustedRSquared)
+                Metric("R² ajusté", fit.adjustedRSquared?.let(StatisticsEngine::format)
+                    ?: adjustedRSquaredUnavailableMessage(state.twoDPoints, fit.parameterCount), fit.adjustedRSquared)
                 Metric("RMSE (Y original)", StatisticsEngine.format(fit.rmse), fit.rmse)
             }
             TextButton(onClick = {
@@ -332,6 +333,9 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                     Text(if (state.comparisonLoading) "Actualisation de la comparaison…" else "La comparaison sera recalculée pour les données actuelles.")
                 } else {
                     Text(state.recommendationMessage, style = MaterialTheme.typography.bodySmall)
+                    state.recommendationWarning?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     val headerModifier = Modifier.horizontalScroll(comparisonHorizontalScroll)
                     Row(headerModifier) {
                         Row(Modifier.width(350.dp).padding(horizontal = 8.dp, vertical = 6.dp)) {
@@ -360,7 +364,9 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                                         })
                                         Text(if (expanded) "▾" else "›", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    CopyableText(modelFit?.adjustedRSquared?.let(StatisticsEngine::format) ?: "—", modelFit?.adjustedRSquared, Modifier.width(80.dp))
+                                    CopyableText(modelFit?.let { candidate -> candidate.adjustedRSquared?.let(StatisticsEngine::format)
+                                        ?: adjustedRSquaredCompactMessage(state.twoDPoints, candidate.parameterCount) } ?: "—",
+                                        modelFit?.adjustedRSquared, Modifier.width(80.dp))
                                     CopyableText(comparison.loocvRmse?.let(StatisticsEngine::format) ?: "—", comparison.loocvRmse, Modifier.width(100.dp))
                                 }
                             }
@@ -377,7 +383,8 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                                     }
                                     Metric("RMSE d’entraînement (Y original)", StatisticsEngine.format(modelFit.rmse), modelFit.rmse)
                                     Metric("Paramètres estimés", "${modelFit.parameterCount}, constante incluse")
-                                    if (modelFit.adjustedRSquared == null) Text("R² ajusté indisponible : effectif insuffisant ou Y constant.")
+                                    if (modelFit.adjustedRSquared == null) Text(comparison.adjustedRSquaredUnavailableReason
+                                        ?: adjustedRSquaredUnavailableMessage(state.twoDPoints, modelFit.parameterCount))
                                     if (comparison.loocvRmse == null) Text(comparison.loocvUnavailableReason ?: "RMSE LOOCV indisponible.")
                                 }
                             }
@@ -623,4 +630,22 @@ private fun modelLabel(model: Statistics2DEngine.Model) = when (model.family) {
     Statistics2DEngine.Family.EXPONENTIAL -> "Exponentiel"
     Statistics2DEngine.Family.LOGARITHMIC -> "Logarithmique"
     Statistics2DEngine.Family.POWER -> "Puissance"
+}
+
+private fun adjustedRSquaredUnavailableMessage(
+    points: List<Statistics2DEngine.PairValue>,
+    parameterCount: Int
+): String = when {
+    points.isNotEmpty() && points.all { it.y == points.first().y } -> "R² ajusté non défini (Y constant)."
+    points.size <= parameterCount -> "R² ajusté indisponible (effectif insuffisant)."
+    else -> "R² ajusté indisponible (résultat numérique non fiable)."
+}
+
+private fun adjustedRSquaredCompactMessage(
+    points: List<Statistics2DEngine.PairValue>,
+    parameterCount: Int
+): String = when {
+    points.isNotEmpty() && points.all { it.y == points.first().y } -> "Y constant"
+    points.size <= parameterCount -> "Effectif insuff."
+    else -> "Indisponible"
 }

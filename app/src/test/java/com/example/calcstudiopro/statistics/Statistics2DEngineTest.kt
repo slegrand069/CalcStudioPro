@@ -154,4 +154,38 @@ class Statistics2DEngineTest {
         val powerData = (1..8).map { Statistics2DEngine.PairValue(it.toDouble(), 3.0 * it.toDouble().pow(1.5)) }
         verify(Statistics2DEngine.fit(powerData, Statistics2DEngine.Model(Statistics2DEngine.Family.POWER)).fit!!, 5.5)
     }
+
+    @Test fun adjustedRSquaredDistinguishesConstantYFromInsufficientSampleSize() {
+        val constantY = (1..7).map { Statistics2DEngine.PairValue(it.toDouble(), 10.0) }
+        val comparisons = Statistics2DEngine.compare(constantY)
+        assertEquals(8, comparisons.size)
+        comparisons.forEach { comparison ->
+            assertNotNull("${comparison.model}", comparison.fitResult.fit)
+            assertNull("${comparison.model}", comparison.fitResult.fit!!.adjustedRSquared)
+            assertEquals("R² ajusté non défini (Y constant).", comparison.adjustedRSquaredUnavailableReason)
+        }
+
+        val varyingY = (1..6).map { Statistics2DEngine.PairValue(it.toDouble(), 2.0 * it + 1.0) }
+        val degreeFive = Statistics2DEngine.compare(varyingY).first { it.model == Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, 5) }
+        assertNotNull(degreeFive.fitResult.fit)
+        assertNull(degreeFive.fitResult.fit!!.adjustedRSquared)
+        assertEquals("R² ajusté indisponible (effectif insuffisant).", degreeFive.adjustedRSquaredUnavailableReason)
+    }
+
+    @Test fun recommendationsWarnBelowTenObservationsButKeepTheirSelection() {
+        val three = points(1.0 to 2.0, 2.0 to 5.0, 3.0 to 10.0)
+        val threeRecommendation = Statistics2DEngine.recommend(Statistics2DEngine.compare(three), three)
+        assertEquals(Statistics2DEngine.Family.POWER, threeRecommendation.model?.family)
+        assertEquals("Effectif faible : recommandation à interpréter avec prudence.", threeRecommendation.warning)
+
+        val nine = (1..9).map { Statistics2DEngine.PairValue(it.toDouble(), 3.0 * it.toDouble().pow(1.5)) }
+        val nineRecommendation = Statistics2DEngine.recommend(Statistics2DEngine.compare(nine), nine)
+        assertNotNull(nineRecommendation.model)
+        assertEquals("Effectif faible : recommandation à interpréter avec prudence.", nineRecommendation.warning)
+
+        val ten = (1..10).map { Statistics2DEngine.PairValue(it.toDouble(), 3.0 * it.toDouble().pow(1.5)) }
+        val tenRecommendation = Statistics2DEngine.recommend(Statistics2DEngine.compare(ten), ten)
+        assertNotNull(tenRecommendation.model)
+        assertNull(tenRecommendation.warning)
+    }
 }

@@ -128,9 +128,10 @@ object Statistics2DEngine {
         val model: Model,
         val fitResult: FitResult,
         val loocvRmse: Double?,
-        val loocvUnavailableReason: String? = null
+        val loocvUnavailableReason: String? = null,
+        val adjustedRSquaredUnavailableReason: String? = null
     )
-    data class Recommendation(val model: Model?, val message: String)
+    data class Recommendation(val model: Model?, val message: String, val warning: String? = null)
 
     fun analyze(points: List<PairValue>): Result? {
         if (points.isEmpty() || points.size > StatisticsEngine.MAX_VALUES || points.any { !it.x.isFinite() || !it.y.isFinite() }) return null
@@ -208,15 +209,18 @@ object Statistics2DEngine {
                 if (errors.size == points.size) sqrt(errors.average()) else null
             } else null
             val finiteCv = cv?.takeIf(Double::isFinite)
+            val adjustedReason = result.fit?.takeIf { it.adjustedRSquared == null }?.let {
+                adjustedRSquaredUnavailableReason(points, it.parameterCount)
+            }
             val reason = when {
                 result.fit == null -> "Modèle non admissible : ${result.unavailableReason ?: "ajustement indisponible"}"
-                result.fit.adjustedRSquared == null -> "R² ajusté indisponible : effectif insuffisant ou Y constant."
+                result.fit.adjustedRSquared == null -> "LOOCV non calculé : R² ajusté indisponible pour une comparaison fiable."
                 points.size > 80 -> "LOOCV indisponible : limite provisoire de 80 couples dépassée."
                 points.size <= result.fit.parameterCount -> "LOOCV indisponible : effectif insuffisant pour réajuster chaque pli."
                 finiteCv == null -> "LOOCV indisponible : au moins un réajustement est instable."
                 else -> null
             }
-            Comparison(model, result, finiteCv, reason)
+            Comparison(model, result, finiteCv, reason, adjustedReason)
         }
     }
 
@@ -251,7 +255,17 @@ object Statistics2DEngine {
         }
         val explanation = if (simplerExists) "performances prédictives proches des modèles plus complexes, avec moins de paramètres"
         else "meilleur RMSE LOOCV parmi les modèles admissibles comparables"
-        return Recommendation(recommended.model, "Modèle ${modelName(recommended.model)} recommandé : $explanation.")
+        return Recommendation(
+            recommended.model,
+            "Modèle ${modelName(recommended.model)} recommandé : $explanation.",
+            "Effectif faible : recommandation à interpréter avec prudence.".takeIf { points.size < 10 }
+        )
+    }
+
+    private fun adjustedRSquaredUnavailableReason(points: List<PairValue>, parameterCount: Int): String = when {
+        points.size >= 2 && points.all { it.y == points.first().y } -> "R² ajusté non défini (Y constant)."
+        points.size <= parameterCount -> "R² ajusté indisponible (effectif insuffisant)."
+        else -> "R² ajusté indisponible (résultat numérique non fiable)."
     }
 
     fun modelName(model: Model): String = when (model.family) {
