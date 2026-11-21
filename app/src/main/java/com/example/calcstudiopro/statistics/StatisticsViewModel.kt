@@ -232,11 +232,15 @@ class StatisticsViewModel(
                     sourceId
                 } else repository.insertSeries(StatisticsSeriesEntity(name = normalized, description = description.trim(), dimension = dimension.name,
                     dataJson = StatisticsDataCodec.encode(data), createdAt = now, updatedAt = now))
-            }.onSuccess { id -> mutableState.value = mutableState.value.copy(sourceSeriesId = id,
-                oneDSourceSeriesId = if (dimension == StatisticsDimension.ONE_D) id else s.oneDSourceSeriesId,
-                twoDSourceSeriesId = if (dimension == StatisticsDimension.TWO_D) id else s.twoDSourceSeriesId,
-                oneDDirty = if (dimension == StatisticsDimension.ONE_D) false else s.oneDDirty,
-                twoDDirty = if (dimension == StatisticsDimension.TWO_D) false else s.twoDDirty, storageError = null) }
+            }.onSuccess { id ->
+                val current = mutableState.value
+                val stillSame = StatisticsDataCodec.encode(currentData(current, dimension)) == StatisticsDataCodec.encode(data)
+                mutableState.value = current.copy(sourceSeriesId = if (current.dimension == dimension) id else current.sourceSeriesId,
+                    oneDSourceSeriesId = if (dimension == StatisticsDimension.ONE_D) id else current.oneDSourceSeriesId,
+                    twoDSourceSeriesId = if (dimension == StatisticsDimension.TWO_D) id else current.twoDSourceSeriesId,
+                    oneDDirty = if (dimension == StatisticsDimension.ONE_D && stillSame) false else current.oneDDirty,
+                    twoDDirty = if (dimension == StatisticsDimension.TWO_D && stillSame) false else current.twoDDirty, storageError = null)
+            }
                 .onFailure { error -> mutableState.value = mutableState.value.copy(storageError = "Enregistrement impossible : ${error.message ?: "erreur de stockage"}") }
         }
     }
@@ -307,7 +311,17 @@ class StatisticsViewModel(
         }
     }
 
-    fun deleteSeries(id: Long) { dao?.let { repository -> scope.launch(Dispatchers.IO) { runCatching { repository.deleteSeries(id) }.onFailure { mutableState.value = mutableState.value.copy(storageError = "Suppression impossible.") } } } }
+    fun deleteSeries(id: Long) { dao?.let { repository -> scope.launch(Dispatchers.IO) {
+        runCatching { repository.deleteSeries(id) }.onSuccess {
+            val current = mutableState.value
+            mutableState.value = current.copy(
+                sourceSeriesId = if (current.sourceSeriesId == id) null else current.sourceSeriesId,
+                oneDSourceSeriesId = if (current.oneDSourceSeriesId == id) null else current.oneDSourceSeriesId,
+                twoDSourceSeriesId = if (current.twoDSourceSeriesId == id) null else current.twoDSourceSeriesId,
+                storageError = null
+            )
+        }.onFailure { mutableState.value = mutableState.value.copy(storageError = "Suppression impossible.") }
+    } } }
 
     fun renameSeries(id: Long, name: String, description: String) {
         val normalized = name.trim()
