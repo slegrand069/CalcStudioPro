@@ -12,6 +12,15 @@ class ConverterStateTest {
         assertTrue(ConversionFormatter.format(1e12).contains("10^"))
     }
 
+    @Test fun compactDisplayFormatIsLimitedToSixDecimalsWithoutChangingCanonicalFormat() {
+        assertEquals("23,75", ConversionFormatter.formatDisplay(23.750000000000004))
+        assertEquals("0,99892", ConversionFormatter.formatDisplay(0.9989201767))
+        assertEquals("0,997842", ConversionFormatter.formatDisplay(0.9978415195))
+        assertEquals("1,25", ConversionFormatter.formatDisplay(1.2500000))
+        assertTrue(ConversionFormatter.formatDisplay(1e-12).contains("10^"))
+        assertEquals("1,234567891", ConversionFormatter.format(1.23456789123))
+    }
+
     @Test fun bidirectionalEditingAndIntermediateInput() {
         val vm = ConverterViewModel()
         vm.editSource("1")

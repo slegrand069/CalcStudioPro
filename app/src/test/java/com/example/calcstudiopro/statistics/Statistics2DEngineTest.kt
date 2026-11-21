@@ -26,9 +26,11 @@ class Statistics2DEngineTest {
         assertEquals(0.0, linear.rmse, 1e-10)
         assertEquals(1.0, linear.rSquared!!, 1e-12)
         assertEquals(14.0, linear.predict(4.0)!!, 1e-10)
+        assertEquals("ŷ = 2 + 3x", linear.equation())
         val quadraticPoints = (-2..2).map { val x = it.toDouble(); Statistics2DEngine.PairValue(x, 1.0 + 2.0 * x + 3.0 * x * x) }
         val quadratic = Statistics2DEngine.fit(quadraticPoints, Statistics2DEngine.Model(Statistics2DEngine.Family.POLYNOMIAL, 2)).fit!!
         assertEquals(17.0, quadratic.predict(2.0)!!, 1e-9)
+        assertEquals("ŷ = 3x^2 + 2x + 1", quadratic.equation())
         val noLog = Statistics2DEngine.fit(points(-1.0 to 2.0, 1.0 to 3.0), Statistics2DEngine.Model(Statistics2DEngine.Family.LOGARITHMIC))
         assertFalse(noLog.available)
     }

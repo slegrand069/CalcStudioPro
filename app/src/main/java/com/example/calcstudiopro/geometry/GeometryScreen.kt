@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
+import com.example.calcstudiopro.ui.components.bringFocusedFieldIntoView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -61,7 +62,7 @@ fun GeometryScreen(
         TextButton(onClick = onOpenModeSelector, modifier = Modifier.testTag("geometry-mode")) { Text("MODE") }
     }) }) { padding ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             item {
@@ -91,12 +92,11 @@ fun GeometryScreen(
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(AngleUnit.DEGREES, AngleUnit.RADIANS).forEach { unit ->
-                        FilterChip(
+                        ChoiceButton(
+                            label = if (unit == AngleUnit.DEGREES) "DEG" else "RAD",
                             selected = state.radians == (unit == AngleUnit.RADIANS),
-                            onClick = { onAngleUnitChange(unit) },
-                            label = { Text(if (unit == AngleUnit.DEGREES) "DEG" else "RAD") },
                             modifier = Modifier.testTag("geometry-angle-${unit.name.lowercase()}")
-                        )
+                        ) { onAngleUnitChange(unit) }
                     }
                 }
             }
@@ -119,8 +119,8 @@ fun GeometryScreen(
                 if (state.solutions.size > 1) item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.solutions.indices.forEach { index ->
-                            FilterChip(index == state.selectedSolution, { onSelectSolution(index) },
-                                label = { Text("Solution ${index + 1}") }, modifier = Modifier.testTag("geometry-solution-$index"))
+                            ChoiceButton("Solution ${index + 1}", index == state.selectedSolution,
+                                Modifier.testTag("geometry-solution-$index")) { onSelectSolution(index) }
                         }
                     }
                 }
@@ -295,12 +295,19 @@ private fun SelectorRow(label: String, selected: String, options: List<String>, 
 @Composable
 private fun GeometryInput(field: InputField, value: String, radians: Boolean, triangle: Boolean, modifier: Modifier = Modifier, onValueChange: (String) -> Unit) {
     val suffix = if (field.id in setOf("A", "B", "C", "angle") && value !in setOf("π/2", "π/3")) if (radians) " (rad)" else " (°)" else ""
-    OutlinedTextField(value, onValueChange, modifier = modifier.testTag("geometry-input-${field.id}"),
+    OutlinedTextField(value, onValueChange, modifier = modifier.bringFocusedFieldIntoView().testTag("geometry-input-${field.id}"),
         label = {
             val label = field.label + suffix + if (field.editable) "" else " · imposé"
             if (triangle) MathText(label, MaterialTheme.typography.labelSmall, maxLines = 1) else Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall)
         }, singleLine = true,
         readOnly = !field.editable, placeholder = { Text("Inconnu") }, textStyle = MaterialTheme.typography.bodyMedium)
+}
+
+@Composable
+private fun ChoiceButton(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val colors = if (selected) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
+    else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)
+    Button(onClick = onClick, modifier = modifier, colors = colors, shape = RoundedCornerShape(20.dp)) { Text(label, maxLines = 1) }
 }
 
 private fun resultLabel(key: String) = when (key) {

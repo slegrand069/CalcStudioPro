@@ -20,4 +20,17 @@ object ConversionFormatter {
             DecimalFormat("0.#########E0", symbols).format(rounded.toDouble()).replace("E", " × 10^")
         } else rounded.toPlainString().replace('.', ',')
     }
+
+    /** Compact French presentation for result labels; callers retain the original Double for calculations. */
+    fun formatDisplay(value: Double): String {
+        require(value.isFinite())
+        if (value == 0.0) return "0"
+        val rounded = BigDecimal.valueOf(value).setScale(6, RoundingMode.HALF_UP).stripTrailingZeros()
+        val exponent = BigDecimal.valueOf(value).precision() - BigDecimal.valueOf(value).scale() - 1
+        val symbols = DecimalFormatSymbols(Locale.FRANCE)
+        return if (exponent < SCIENTIFIC_BELOW || exponent >= SCIENTIFIC_FROM) {
+            DecimalFormat("0.######E0", symbols).apply { roundingMode = RoundingMode.HALF_UP; isGroupingUsed = false }
+                .format(value).replace("E", " × 10^")
+        } else rounded.toPlainString().replace('.', ',')
+    }
 }

@@ -1,5 +1,6 @@
 package com.example.calcstudiopro.geometry
 
+import com.example.calcstudiopro.converter.ConversionFormatter
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.max
@@ -65,15 +66,7 @@ object TriangleEngine {
     }
 
     fun format(value: Double): String {
-        require(value.isFinite())
-        val magnitude = kotlin.math.abs(value)
-        val pattern = if (magnitude != 0.0 && (magnitude < 0.01 || magnitude >= 1_000_000_000.0)) "0.##E0" else "0.##"
-        return java.text.DecimalFormat(pattern, java.text.DecimalFormatSymbols(java.util.Locale.FRANCE)).apply {
-            roundingMode = java.math.RoundingMode.HALF_UP
-            isGroupingUsed = false
-            maximumFractionDigits = 2
-            minimumFractionDigits = 0
-        }.format(value)
+        return ConversionFormatter.formatDisplay(value)
     }
 
     fun formatCanvasAngle(value: Double): String = java.text.DecimalFormat("0.0", java.text.DecimalFormatSymbols(java.util.Locale.FRANCE)).format(value)

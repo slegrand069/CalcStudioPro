@@ -1,12 +1,16 @@
 package com.example.calcstudiopro.statistics
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,11 +19,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,6 +33,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,12 +45,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlin.math.min
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.ContentCopy
+import com.example.calcstudiopro.ui.components.bringFocusedFieldIntoView
 
 @Composable
 fun StatisticsRoute(viewModel: StatisticsViewModel, onOpenModeSelector: () -> Unit) {
@@ -69,6 +85,8 @@ fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, vie
     var confirmReplacePaste by remember { mutableStateOf(false) }
     var search by remember { mutableStateOf("") }
     var libraryFilter by remember { mutableStateOf("Toutes") }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showAllValues by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     val isOneD = state.dimension == StatisticsDimension.ONE_D
     val values = state.oneDValues
@@ -77,22 +95,37 @@ fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, vie
     val fit = state.selectedFit.fit
 
     Scaffold(topBar = {
-        TopAppBar(title = { Text(when (state.page) { StatisticsPage.DASHBOARD -> "Statistiques"; StatisticsPage.EDITOR -> "Éditeur ${if (isOneD) "1D" else "2D"}"; StatisticsPage.LIBRARY -> "Bibliothèque" }) }, actions = {
+        TopAppBar(title = { Text(when (state.page) { StatisticsPage.DASHBOARD -> "Statistiques"; StatisticsPage.EDITOR -> "Éditeur ${if (isOneD) "1D" else "2D"}"; StatisticsPage.LIBRARY -> "Bibliothèque" }, maxLines = 1) }, actions = {
             if (state.page == StatisticsPage.DASHBOARD) {
-                TextButton(onClick = { viewModel.navigate(StatisticsPage.LIBRARY) }) { Text("DOSSIER") }
-                TextButton(onClick = { showSaveDialog = true; saveAs = false; name = ""; description = "" }) { Text("ENREGISTRER") }
-                TextButton(onClick = { showSaveDialog = true; saveAs = true; name = state.library.firstOrNull { it.id == state.sourceSeriesId }?.name?.plus(" (copie)").orEmpty(); description = "" }) { Text("ENREGISTRER SOUS") }
-                TextButton(onClick = onOpenModeSelector, modifier = Modifier.testTag("statistics-mode")) { Text("MODE") }
+                IconButton(onClick = { viewModel.navigate(StatisticsPage.LIBRARY) }, modifier = Modifier.semantics { contentDescription = "Ouvrir la bibliothèque" }) {
+                    Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                }
+                IconButton(onClick = { showSaveDialog = true; saveAs = false; name = ""; description = "" }, modifier = Modifier.semantics { contentDescription = "Enregistrer la série" }) {
+                    Icon(Icons.Filled.Save, contentDescription = null)
+                }
+                Box {
+                    IconButton(onClick = { showMoreMenu = true }, modifier = Modifier.semantics { contentDescription = "Autres actions" }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = null)
+                    }
+                    DropdownMenu(expanded = showMoreMenu, onDismissRequest = { showMoreMenu = false }) {
+                        DropdownMenuItem(text = { Text("Enregistrer sous") }, onClick = {
+                            showMoreMenu = false; showSaveDialog = true; saveAs = true
+                            name = state.library.firstOrNull { it.id == state.sourceSeriesId }?.name?.plus(" (copie)").orEmpty(); description = ""
+                        })
+                    }
+                }
+                TextButton(onClick = onOpenModeSelector, modifier = Modifier.testTag("statistics-mode")) { Text("MODE", maxLines = 1, softWrap = false) }
             }
         })
     }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (state.page == StatisticsPage.DASHBOARD) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { viewModel.selectDimension(StatisticsDimension.ONE_D) }, modifier = Modifier.weight(1f), enabled = !isOneD) { Text("1D") }
-                    OutlinedButton(onClick = { viewModel.selectDimension(StatisticsDimension.TWO_D) }, modifier = Modifier.weight(1f), enabled = isOneD) { Text("2D") }
+                    ChoiceButton("1D", isOneD, Modifier.weight(1f)) { viewModel.selectDimension(StatisticsDimension.ONE_D) }
+                    ChoiceButton("2D", !isOneD, Modifier.weight(1f)) { viewModel.selectDimension(StatisticsDimension.TWO_D) }
                 }
-                if (isOneD) DashboardOneD(state, oneD, viewModel, Modifier.weight(1f)) else DashboardTwoD(state, twoD, fit, viewModel, Modifier.weight(1f))
+                if (isOneD) DashboardOneD(state, oneD, viewModel, Modifier.weight(1f)) { showAllValues = true }
+                else DashboardTwoD(state, twoD, fit, viewModel, Modifier.weight(1f)) { showAllValues = true }
             } else if (state.page == StatisticsPage.EDITOR) {
                 Editor(state, viewModel, clipboard, pasteText = { pasteText = it }, onFinish = viewModel::finishEditing)
             } else {
@@ -186,28 +219,29 @@ fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, vie
             }) { Text("Confirmer le remplacement") } },
             dismissButton = { TextButton(onClick = { confirmReplacePaste = false }) { Text("Annuler") } })
     }
+    if (showAllValues) ReadOnlyValuesDialog(state, onDismiss = { showAllValues = false })
 }
 
 @Composable
-private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Result?, viewModel: StatisticsViewModel, modifier: Modifier) {
+private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Result?, viewModel: StatisticsViewModel, modifier: Modifier, onShowAll: () -> Unit) {
     val scroll = rememberScrollState()
     Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionCard("DONNÉES · ${state.oneDValues.size} observations") {
-            Text(if (state.oneDValues.isEmpty()) "Aucune donnée. Modifiez la série pour commencer." else state.oneDValues.take(8).joinToString(" · ") { StatisticsEngine.format(it) } + if (state.oneDValues.size > 8) " …" else "")
+        SectionCard("DONNÉES · ${state.oneDValues.size} observations · ${state.oneDValues.distinct().size} valeurs distinctes") {
+            if (state.oneDValues.isEmpty()) Text("Aucune donnée. Modifiez la série pour commencer.") else DataPreview(oneDPreviewEntries(state), onShowAll)
             TextButton(onClick = viewModel::openEditor) { Text("Modifier les données") }
             if (state.oneDDirty) Text("Session modifiée · non enregistrée dans la bibliothèque", color = MaterialTheme.colorScheme.tertiary)
         }
         if (result != null) {
             SectionCard("RÉSULTATS ESSENTIELS") {
-                Metric("n", result.count.toString()); Metric("Moyenne", StatisticsEngine.format(result.mean)); Metric("Médiane", StatisticsEngine.format(result.median))
-                Metric("Écart-type échantillon", result.sampleStandardDeviation?.let(StatisticsEngine::format) ?: "Non défini")
+                Metric("n", result.count.toString()); Metric("Moyenne", StatisticsEngine.format(result.mean), exactValue = result.mean); Metric("Médiane", StatisticsEngine.format(result.median), exactValue = result.median)
+                Metric("Écart-type échantillon", result.sampleStandardDeviation?.let(StatisticsEngine::format) ?: "Non défini", exactValue = result.sampleStandardDeviation)
                 Metric("Minimum / Maximum", "${StatisticsEngine.format(result.minimum)} / ${StatisticsEngine.format(result.maximum)}")
                 Metric("CV échantillon", result.sampleCoefficientOfVariation?.let { "${StatisticsEngine.format(it)} %" } ?: "Non défini")
             }
             CollapsibleSection("INDICATEURS COMPLÉMENTAIRES") {
-                Metric("Somme", StatisticsEngine.format(result.sum)); Metric("Étendue", result.range?.let(StatisticsEngine::format) ?: "Indisponible (dépassement numérique)")
-                Metric("Variance population", StatisticsEngine.format(result.populationVariance)); Metric("Variance échantillon", result.sampleVariance?.let(StatisticsEngine::format) ?: "Non défini")
-                Metric("Écart-type population", StatisticsEngine.format(result.populationStandardDeviation))
+                Metric("Somme", StatisticsEngine.format(result.sum), exactValue = result.sum); Metric("Étendue", result.range?.let(StatisticsEngine::format) ?: "Indisponible (dépassement numérique)")
+                Metric("Variance population", StatisticsEngine.format(result.populationVariance), exactValue = result.populationVariance); Metric("Variance échantillon", result.sampleVariance?.let(StatisticsEngine::format) ?: "Non défini", exactValue = result.sampleVariance)
+                Metric("Écart-type population", StatisticsEngine.format(result.populationStandardDeviation), exactValue = result.populationStandardDeviation)
                 Metric("Modes", if (result.hasDominantMode) result.modes.joinToString(", ", transform = StatisticsEngine::format) else "Aucun mode dominant")
                 Metric("Q1 / Q2 / Q3", "${StatisticsEngine.format(result.q1)} / ${StatisticsEngine.format(result.median)} / ${StatisticsEngine.format(result.q3)}")
                 Metric("IQR", result.interquartileRange?.let(StatisticsEngine::format) ?: "Indisponible (dépassement numérique)")
@@ -216,10 +250,12 @@ private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Resul
                 Metric("Kurtosis excédentaire", result.excessKurtosis?.let(StatisticsEngine::format) ?: "Indisponible (n ≥ 4 et dispersion requise)")
             }
             SectionCard("PERCENTILE PERSONNALISÉ · TYPE 7") {
-                OutlinedTextField(state.percentileInput, viewModel::setPercentile, label = { Text("Percentile P0 à P100") }, singleLine = true)
+                OutlinedTextField(state.percentileInput, viewModel::setPercentile, label = { Text("Percentile P0 à P100") }, singleLine = true,
+                    modifier = Modifier.bringFocusedFieldIntoView())
                 val p = state.percentileInput.toDoubleOrNull()
                 val value = p?.let { StatisticsEngine.quantile(state.oneDValues, it) }
                 Text(value?.let { "Résultat : ${StatisticsEngine.format(it)}" } ?: "Saisissez un percentile entre 0 et 100.")
+                value?.let { Metric("Percentile", StatisticsEngine.format(it), exactValue = it) }
             }
             TextButton(onClick = viewModel::save, modifier = Modifier.fillMaxWidth().testTag("statistics-save")) { Text("Ajouter ce résultat à l’historique") }
         }
@@ -228,14 +264,14 @@ private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Resul
 }
 
 @Composable
-private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Result?, fit: Statistics2DEngine.Fit?, viewModel: StatisticsViewModel, modifier: Modifier) {
+private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Result?, fit: Statistics2DEngine.Fit?, viewModel: StatisticsViewModel, modifier: Modifier, onShowAll: () -> Unit) {
     var modelExpanded by remember { mutableStateOf(false) }
     var comparisonExpanded by remember { mutableStateOf(false) }
     var copyColumn by remember { mutableStateOf<Boolean?>(null) }
     val scroll = rememberScrollState()
     Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SectionCard("DONNÉES · ${state.twoDPoints.size} couples") {
-            Text(if (state.twoDPoints.isEmpty()) "Aucune donnée. Modifiez la série pour commencer." else state.twoDPoints.take(5).joinToString(" · ") { "(${StatisticsEngine.format(it.x)}, ${StatisticsEngine.format(it.y)})" } + if (state.twoDPoints.size > 5) " …" else "")
+        SectionCard("DONNÉES · ${state.twoDPoints.size} couples · ${state.twoDPoints.distinct().size} couples distincts") {
+            if (state.twoDPoints.isEmpty()) Text("Aucune donnée. Modifiez la série pour commencer.") else DataPreview(state.twoDPoints.map { "(${StatisticsEngine.format(it.x)} ; ${StatisticsEngine.format(it.y)})" }, onShowAll)
             Row {
                 TextButton(onClick = viewModel::openEditor) { Text("Modifier") }
                 TextButton(onClick = { if (state.oneDDirty) copyColumn = true else viewModel.copyColumnToOneD(true, confirm = true) }) { Text("Copier X vers 1D") }
@@ -245,11 +281,11 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
         }
         result?.let {
             SectionCard("RÉSULTATS ESSENTIELS") {
-                Metric("n", it.count.toString()); Metric("Moyenne X", StatisticsEngine.format(it.x.mean)); Metric("Moyenne Y", StatisticsEngine.format(it.y.mean))
-                Metric("Pearson r", it.pearson?.let(StatisticsEngine::format) ?: "Non défini")
-                Metric("Spearman ρ", it.spearman?.let(StatisticsEngine::format) ?: "Non défini")
-                Metric("Covariance population", it.covariancePopulation?.let(StatisticsEngine::format) ?: "Non définie")
-                Metric("Covariance échantillon", it.covarianceSample?.let(StatisticsEngine::format) ?: "Non définie")
+                Metric("n", it.count.toString()); Metric("Moyenne X", StatisticsEngine.format(it.x.mean), exactValue = it.x.mean); Metric("Moyenne Y", StatisticsEngine.format(it.y.mean), exactValue = it.y.mean)
+                Metric("Pearson r", it.pearson?.let(StatisticsEngine::format) ?: "Non défini", exactValue = it.pearson)
+                Metric("Spearman ρ", it.spearman?.let(StatisticsEngine::format) ?: "Non défini", exactValue = it.spearman)
+                Metric("Covariance population", it.covariancePopulation?.let(StatisticsEngine::format) ?: "Non définie", exactValue = it.covariancePopulation)
+                Metric("Covariance échantillon", it.covarianceSample?.let(StatisticsEngine::format) ?: "Non définie", exactValue = it.covarianceSample)
             }
             CollapsibleSection("STATISTIQUES X / Y") {
                 Metric("Variance population X / Y", "${StatisticsEngine.format(it.x.populationVariance)} / ${StatisticsEngine.format(it.y.populationVariance)}")
@@ -260,15 +296,16 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
         SectionCard("RÉGRESSION") {
             TextButton(onClick = { modelExpanded = true }) { Text("Modèle : ${modelLabel(state.model)} ▾") }
             DropdownMenu(expanded = modelExpanded, onDismissRequest = { modelExpanded = false }) {
-                Statistics2DEngine.Family.values().forEach { family ->
+                DropdownMenuItem(text = { Text("Linéaire") }, onClick = { viewModel.setModel(Statistics2DEngine.Family.LINEAR); modelExpanded = false })
+                (2..5).forEach { degree -> DropdownMenuItem(text = { Text("Polynôme degré $degree") }, onClick = { viewModel.setModel(Statistics2DEngine.Family.POLYNOMIAL, degree); modelExpanded = false }) }
+                listOf(Statistics2DEngine.Family.EXPONENTIAL, Statistics2DEngine.Family.LOGARITHMIC, Statistics2DEngine.Family.POWER).forEach { family ->
                     DropdownMenuItem(text = { Text(modelLabel(Statistics2DEngine.Model(family))) }, onClick = { viewModel.setModel(family); modelExpanded = false })
                 }
-                (2..5).forEach { degree -> DropdownMenuItem(text = { Text("Polynôme degré $degree") }, onClick = { viewModel.setModel(Statistics2DEngine.Family.POLYNOMIAL, degree); modelExpanded = false }) }
             }
             if (state.fitLoading) Text("Calcul du modèle…")
             else if (fit == null) Text(state.selectedFit.unavailableReason ?: "Modèle indisponible", color = MaterialTheme.colorScheme.error)
             else {
-                Metric("Équation", fit.equation().replace('.', ','))
+                Metric("Équation", fit.equation())
                 Metric("Coefficients", fit.coefficients.joinToString(" · ") { StatisticsEngine.format(it) })
                 Metric("Paramètres estimés", "${fit.parameterCount}, constante incluse")
                 Metric("R²", fit.rSquared?.let(StatisticsEngine::format) ?: "Non défini (Y constant)")
@@ -286,7 +323,8 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
             }
             androidx.compose.material3.HorizontalDivider()
             Text("PRÉDICTION")
-            OutlinedTextField(state.predictionInput, viewModel::setPrediction, label = { Text("Valeur X") }, singleLine = true)
+            OutlinedTextField(state.predictionInput, viewModel::setPrediction, label = { Text("Valeur X") }, singleLine = true,
+                modifier = Modifier.bringFocusedFieldIntoView())
             val x = StatisticsEngine.parseNumber(state.predictionInput)
             val y = x?.let { fit?.predict(it) }
             if (y != null) {
@@ -310,8 +348,8 @@ private fun Editor(state: StatisticsState, viewModel: StatisticsViewModel, clipb
         if (state.dimension == StatisticsDimension.ONE_D) {
             Text("Présentation 1D")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { viewModel.setOneDGrouped(false) }, enabled = state.oneDGrouped) { Text("Observations") }
-                OutlinedButton(onClick = { viewModel.setOneDGrouped(true) }, enabled = !state.oneDGrouped) { Text("Valeur + effectif") }
+                ChoiceButton("Observations", !state.oneDGrouped) { viewModel.setOneDGrouped(false) }
+                ChoiceButton("Valeur + effectif", state.oneDGrouped) { viewModel.setOneDGrouped(true) }
             }
         }
         Text(if (state.dimension == StatisticsDimension.ONE_D) if (state.oneDGrouped) "Valeur ; effectif · effectifs entiers positifs" else "Session 1D · une valeur par ligne" else "Session 2D · colonnes X et Y séparées par tabulation")
@@ -332,6 +370,46 @@ private fun Editor(state: StatisticsState, viewModel: StatisticsViewModel, clipb
         state.pasteUndo?.let { TextButton(onClick = viewModel::undoPaste) { Text("Annuler le collage") } }
         state.storageError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) { Text("Terminer") }
+    }
+}
+
+@Composable
+private fun DataPreview(items: List<String>, onShowAll: () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val itemsPerLine = (maxWidth / 64.dp).toInt().coerceAtLeast(1)
+        val limit = (itemsPerLine * 5).coerceIn(4, 20)
+        Text(items.take(limit).joinToString(" · "), maxLines = 5, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+    TextButton(onClick = onShowAll, modifier = Modifier.fillMaxWidth()) { Text("Voir toutes les valeurs") }
+}
+
+private fun oneDPreviewEntries(state: StatisticsState): List<String> {
+    val frequencies = state.oneDValues.groupingBy { it }.eachCount()
+    val compressed = state.oneDGrouped || frequencies.values.any { it > 1 }
+    return if (compressed) frequencies.entries.map { "(${StatisticsEngine.format(it.key)} ; ${it.value})" }
+    else state.oneDValues.map(StatisticsEngine::format)
+}
+
+@Composable
+private fun ReadOnlyValuesDialog(state: StatisticsState, onDismiss: () -> Unit) {
+    val isOneD = state.dimension == StatisticsDimension.ONE_D
+    val rows = if (isOneD) {
+        if (state.oneDGrouped) state.oneDValues.groupingBy { it }.eachCount().entries.map { "(${StatisticsEngine.format(it.key)} ; ${it.value})" }
+        else state.oneDValues.map(StatisticsEngine::format)
+    } else state.twoDPoints.map { "(${StatisticsEngine.format(it.x)} ; ${StatisticsEngine.format(it.y)})" }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxWidth().padding(horizontal = 24.dp).heightIn(max = 560.dp), shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Text(if (isOneD) "Toutes les valeurs · ${state.oneDValues.size} observations" else "Tous les couples · ${state.twoDPoints.size} couples",
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    itemsIndexed(rows) { index, value -> Text("${index + 1}.  $value", style = MaterialTheme.typography.bodyMedium) }
+                }
+                TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Fermer") }
+            }
+        }
     }
 }
 
@@ -357,10 +435,10 @@ private fun DataRows(text: String, dimension: StatisticsDimension, grouped: Bool
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text((index + 1).toString(), modifier = Modifier.padding(top = 16.dp))
                     OutlinedTextField(first, { first = it; rows[index] = if (dimension == StatisticsDimension.TWO_D) "$it\t$second" else if (grouped) "$it;$second" else it; onChange(rows.joinToString("\n")) },
-                        label = { Text(if (dimension == StatisticsDimension.TWO_D) "X" else "Valeur") }, singleLine = true, modifier = Modifier.weight(1f),
+                        label = { Text(if (dimension == StatisticsDimension.TWO_D) "X" else "Valeur") }, singleLine = true, modifier = Modifier.weight(1f).bringFocusedFieldIntoView(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     if (dimension == StatisticsDimension.TWO_D || grouped) OutlinedTextField(second, { second = it; rows[index] = if (dimension == StatisticsDimension.TWO_D) "$first\t$it" else "$first;$it"; onChange(rows.joinToString("\n")) },
-                        label = { Text(if (dimension == StatisticsDimension.TWO_D) "Y" else "Effectif") }, singleLine = true, modifier = Modifier.weight(1f),
+                        label = { Text(if (dimension == StatisticsDimension.TWO_D) "Y" else "Effectif") }, singleLine = true, modifier = Modifier.weight(1f).bringFocusedFieldIntoView(),
                         keyboardOptions = KeyboardOptions(keyboardType = if (grouped) KeyboardType.Number else KeyboardType.Decimal))
                     TextButton(onClick = { val next = rows.toMutableList().also { it.removeAt(index) }; onChange(next.joinToString("\n")) }) { Text("Suppr.") }
                 }
@@ -381,7 +459,7 @@ private fun Library(state: StatisticsState, viewModel: StatisticsViewModel, sear
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(search, onSearch, label = { Text("Rechercher une série") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Toutes", "1D", "2D").forEach { mode ->
-            OutlinedButton(onClick = { onFilter(mode) }, enabled = filter != mode) { Text(mode) }
+            ChoiceButton(mode, filter == mode) { onFilter(mode) }
         } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { viewModel.navigate(StatisticsPage.DASHBOARD) }) { Text("Retour") }
@@ -434,6 +512,27 @@ private fun Metric(label: String, value: String) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Text(value, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
+}
+
+@Composable
+private fun Metric(label: String, value: String, exactValue: Double?) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(value, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        if (exactValue != null) {
+            val clipboard = LocalClipboardManager.current
+            IconButton(onClick = { clipboard.setText(AnnotatedString(exactValue.toString())) }, modifier = Modifier.semantics {
+                contentDescription = "Copier avec précision complète"
+            }) { Icon(Icons.Filled.ContentCopy, contentDescription = null) }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceButton(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val colors = if (selected) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
+    else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)
+    Button(onClick = onClick, modifier = modifier, colors = colors, shape = MaterialTheme.shapes.small) { Text(label, maxLines = 1) }
 }
 
 private fun modelLabel(model: Statistics2DEngine.Model) = when (model.family) {

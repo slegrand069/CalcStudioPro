@@ -140,7 +140,7 @@ object StatisticsEngine {
         return normalized.toDoubleOrNull()?.takeIf(Double::isFinite)
     }
 
-    fun format(value: Double): String = ConversionFormatter.format(value)
+    fun format(value: Double): String = ConversionFormatter.formatDisplay(value)
 
     private val WHITESPACE = Regex("\\s+")
     private val NUMBER = Regex("[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?")

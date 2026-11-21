@@ -1,5 +1,6 @@
 package com.example.calcstudiopro.statistics
 
+import com.example.calcstudiopro.converter.ConversionFormatter
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
@@ -33,11 +34,20 @@ object Statistics2DEngine {
         val parameterCount: Int
     ) {
         fun equation(): String = when (model.family) {
-            Family.LINEAR -> "ŷ = ${coefficients[0]} + ${coefficients[1]}·((x − $xCenter)/$xScale)"
-            Family.POLYNOMIAL -> "ŷ = " + coefficients.mapIndexed { index, value -> "$value·((x − $xCenter)/$xScale)^$index" }.joinToString(" + ")
-            Family.LOGARITHMIC -> "ŷ = ${coefficients[0]} + ${coefficients[1]}·ln(x)"
-            Family.EXPONENTIAL -> "ŷ = ${coefficients[0]}·exp(${coefficients[1]}·x)"
-            Family.POWER -> "ŷ = ${coefficients[0]}·x^${coefficients[1]}"
+            Family.LINEAR -> {
+                val slope = coefficients[1] / xScale
+                val intercept = coefficients[0] - coefficients[1] * (xCenter / xScale)
+                if (abs(xCenter / xScale) <= 1e4 && slope.isFinite() && intercept.isFinite()) linearEquation(intercept, slope)
+                else "ŷ = ${format(coefficients[0])} + ${signedTerm(coefficients[1], "u")}; u = (x − ${format(xCenter)})/${format(xScale)}"
+            }
+            Family.POLYNOMIAL -> {
+                val expanded = expandPolynomial(coefficients, xCenter, xScale)
+                if (expanded != null) polynomialEquation(expanded)
+                else normalizedPolynomialEquation(coefficients, xCenter, xScale)
+            }
+            Family.LOGARITHMIC -> "ŷ = ${format(coefficients[0])}${signedTerm(coefficients[1], "ln(x)")}"
+            Family.EXPONENTIAL -> "ŷ = ${format(coefficients[0])}·exp(${format(coefficients[1])}·x)"
+            Family.POWER -> "ŷ = ${format(coefficients[0])}·x^${format(coefficients[1])}"
         }
 
         fun predict(x: Double): Double? {
@@ -49,6 +59,48 @@ object Statistics2DEngine {
                 Family.POWER -> coefficients[0] * x.pow(coefficients[1])
             }
             return value.takeIf(Double::isFinite)
+        }
+
+        private fun format(value: Double) = ConversionFormatter.formatDisplay(value)
+        private fun signedTerm(value: Double, variable: String): String = if (value < 0.0) " − ${format(abs(value))}·$variable" else " + ${format(value)}·$variable"
+        private fun linearEquation(intercept: Double, slope: Double) = "ŷ = ${format(intercept)}${if (slope < 0.0) " − ${format(abs(slope))}x" else " + ${format(slope)}x"}"
+        private fun polynomialEquation(values: List<Double>): String {
+            val terms = values.indices.reversed().filter { values[it] != 0.0 }.map { power ->
+                val c = values[power]
+                val variable = when (power) { 0 -> ""; 1 -> "x"; else -> "x^$power" }
+                val body = if (power == 0) format(abs(c)) else if (abs(c) == 1.0) variable else "${format(abs(c))}$variable"
+                (if (c < 0.0) "− " else "+ ") + body
+            }
+            if (terms.isEmpty()) return "ŷ = 0"
+            return "ŷ = " + terms.joinToString(" ").removePrefix("+ ")
+        }
+        private fun normalizedPolynomialEquation(values: List<Double>, center: Double, scale: Double): String {
+            val terms = values.mapIndexedNotNull { power, c ->
+                if (c == 0.0) null else {
+                    val variable = if (power == 0) "" else if (power == 1) "u" else "u^$power"
+                    val body = if (power == 0) format(abs(c)) else "${format(abs(c))}$variable"
+                    (if (c < 0.0) "− " else "+ ") + body
+                }
+            }
+            val expression = if (terms.isEmpty()) "0" else terms.joinToString(" ").removePrefix("+ ")
+            return "ŷ = $expression, u = (x − ${format(center)})/${format(scale)}"
+        }
+        private fun expandPolynomial(values: List<Double>, center: Double, scale: Double): List<Double>? {
+            if (scale == 0.0 || !scale.isFinite() || abs(center / scale) > 1e4) return null
+            val alpha = -center / scale
+            val beta = 1.0 / scale
+            var result = DoubleArray(values.size)
+            var basis = doubleArrayOf(1.0)
+            values.forEach { coefficient ->
+                for (i in basis.indices) result[i] += coefficient * basis[i]
+                if (basis.size < values.size) {
+                    val next = DoubleArray(basis.size + 1)
+                    for (i in basis.indices) { next[i] += basis[i] * alpha; next[i + 1] += basis[i] * beta }
+                    basis = next
+                }
+            }
+            if (result.any { !it.isFinite() || (it != 0.0 && format(it) == "0") }) return null
+            return result.toList()
         }
     }
     data class FitResult(val fit: Fit? = null, val unavailableReason: String? = null) {
