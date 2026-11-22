@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.calcstudiopro.MainActivity
@@ -45,15 +46,14 @@ class HistoryNavigationTest {
     }
 
     @Test
-    fun modeSelectorOpensHistoryAndDoesNotExposeUnimplementedModes() {
+    fun modeSelectorOpensHistoryAndExposesImplementedModes() {
         composeRule.onNodeWithTag("calculator-key-MODE").performClick()
         composeRule.onNodeWithTag("mode-option-history").assertIsDisplayed()
         composeRule.onNodeWithTag("mode-option-calculator").assertIsDisplayed()
         composeRule.onNodeWithTag("mode-option-converter").assertIsDisplayed()
         composeRule.onNodeWithTag("mode-option-statistics").assertIsDisplayed()
-        composeRule.onAllNodesWithText("Géométrie").assertCountEquals(0)
-        composeRule.onAllNodesWithText("Graphique").assertCountEquals(0)
-        composeRule.onAllNodesWithText("Arithmétique").assertCountEquals(0)
+        composeRule.onNodeWithTag("mode-option-geometry").assertIsDisplayed()
+        composeRule.onNodeWithTag("mode-option-arithmetic").assertIsDisplayed()
 
         composeRule.onNodeWithTag("mode-option-history").performClick()
         composeRule.onNodeWithText("Historique").assertIsDisplayed()
@@ -116,26 +116,23 @@ class HistoryNavigationTest {
     }
 
     @Test
-    fun statisticsModeSavesReadableAnalysisWithoutReuseAction() {
+    fun statisticsModeEditsAndDisplaysAReadableAnalysis() {
         composeRule.onNodeWithTag("calculator-key-MODE").performClick()
         composeRule.onNodeWithTag("mode-option-statistics").performClick()
-        composeRule.onNodeWithTag("statistics-input").assertIsDisplayed()
-        composeRule.onNodeWithText("Série de valeurs").assertIsDisplayed()
+        composeRule.onNodeWithText("Aucune donnée. Modifiez la série pour commencer.").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics-mode").performClick()
         composeRule.onNodeWithTag("mode-option-history").performClick()
         composeRule.onNodeWithTag("history-empty").assertIsDisplayed()
 
         composeRule.onNodeWithTag("history-mode").performClick()
         composeRule.onNodeWithTag("mode-option-statistics").performClick()
-        composeRule.onNodeWithTag("statistics-input").performTextInput("1 2 3")
-        composeRule.onNodeWithTag("statistics-save").performClick()
-        composeRule.onNodeWithTag("statistics-mode").performClick()
-        composeRule.onNodeWithTag("mode-option-history").performClick()
-
-        composeRule.onNodeWithText("Statistiques : 1 2 3").assertIsDisplayed()
-        composeRule.onNodeWithText("Effectif : 3", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("Écart-type (population) : 0,8164965809", substring = true).assertIsDisplayed()
-        composeRule.onAllNodesWithText("Réutiliser dans la calculatrice").assertCountEquals(0)
+        composeRule.onNodeWithText("Modifier les données").performClick()
+        composeRule.onNodeWithText("Saisie rapide").performTextInput("1 2 3")
+        composeRule.onNodeWithText("Ajouter la saisie").performClick()
+        composeRule.onNodeWithText("Terminer").performClick()
+        composeRule.onNodeWithText("RÉSULTATS ESSENTIELS").assertIsDisplayed()
+        composeRule.onNodeWithText("Moyenne").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-save").performScrollTo().assertIsDisplayed()
     }
 
     private fun openHistory() {
