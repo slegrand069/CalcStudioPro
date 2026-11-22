@@ -11,9 +11,30 @@ data class GraphPoint(
     val details: List<GraphPointDetail> = emptyList()
 )
 
-data class GraphPointDetail(val label: String, val value: Double)
+data class GraphPointDetail(val label: String, val value: Double, val wholeNumber: Boolean = false)
 
-enum class GraphSeriesKind { POINTS, LINE, POINTS_AND_LINE }
+enum class GraphSeriesKind { POINTS, LINE, POINTS_AND_LINE, BARS }
+
+/** Filled rectangle in graph coordinates; used for histogram bins and the Tukey box. */
+data class GraphBar(
+    val id: String,
+    val xMinimum: Double,
+    val xMaximum: Double,
+    val yMinimum: Double,
+    val yMaximum: Double,
+    val details: List<GraphPointDetail> = emptyList(),
+    val fillAlpha: Float = 0.72f
+)
+
+/** Individually selectable line segment in graph coordinates. */
+data class GraphSegment(
+    val id: String,
+    val x1: Double,
+    val y1: Double,
+    val x2: Double,
+    val y2: Double,
+    val details: List<GraphPointDetail> = emptyList()
+)
 
 data class GraphSeries(
     val id: String,
@@ -21,7 +42,9 @@ data class GraphSeries(
     val points: List<GraphPoint>,
     val kind: GraphSeriesKind = GraphSeriesKind.POINTS,
     /** Palette slot, interpreted only by the renderer. */
-    val colorIndex: Int = 0
+    val colorIndex: Int = 0,
+    val bars: List<GraphBar> = emptyList(),
+    val segments: List<GraphSegment> = emptyList()
 )
 
 data class GraphSnapshot(

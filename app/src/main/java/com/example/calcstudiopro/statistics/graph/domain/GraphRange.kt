@@ -3,13 +3,26 @@ package com.example.calcstudiopro.statistics.graph.domain
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphSnapshot
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
+import com.example.calcstudiopro.statistics.graph.model.DataPoint
 import kotlin.math.abs
 
 object GraphRange {
     fun autoFit(snapshot: GraphSnapshot, paddingFraction: Double = 0.08): GraphViewport {
         require(paddingFraction.isFinite() && paddingFraction >= 0.0)
-        val points = snapshot.series.asSequence().flatMap { it.points.asSequence() }
-            .filter { it.x.isFinite() && it.y.isFinite() }.toList()
+        val points = snapshot.series.asSequence().flatMap { series -> sequence {
+            yieldAll(series.points.asSequence().filter { it.x.isFinite() && it.y.isFinite() }
+                .map { DataPoint(it.x, it.y) })
+            series.bars.forEach { bar ->
+                if (bar.xMinimum.isFinite() && bar.xMaximum.isFinite() && bar.yMinimum.isFinite() && bar.yMaximum.isFinite()) {
+                    yield(DataPoint(bar.xMinimum, bar.yMinimum))
+                    yield(DataPoint(bar.xMaximum, bar.yMaximum))
+                }
+            }
+            series.segments.forEach { segment ->
+                if (segment.x1.isFinite() && segment.y1.isFinite()) yield(DataPoint(segment.x1, segment.y1))
+                if (segment.x2.isFinite() && segment.y2.isFinite()) yield(DataPoint(segment.x2, segment.y2))
+            }
+        } }.toList()
         if (points.isEmpty()) return GraphViewport(AxisRange(-1.0, 1.0), AxisRange(-1.0, 1.0))
         return GraphViewport(
             fitAxis(points.minOf { it.x }, points.maxOf { it.x }, paddingFraction),

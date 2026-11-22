@@ -27,6 +27,22 @@ class GraphDemoScreenTest {
         composeRule.onNodeWithTag("statistics-graph-model").assertIsDisplayed()
     }
 
+    @Test fun oneDGraphNavigationOffersHistogramSettingsAndTukeyView() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        composeRule.onNodeWithTag("statistics-dimension-1d").performClick()
+        composeRule.onNodeWithTag("statistics-open-1d-graphs").performScrollTo().performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-canvas").assertIsDisplayed()
+        composeRule.onNodeWithTag("histogram-mode-automatic").assertIsSelected()
+        composeRule.onNodeWithTag("histogram-mode-manual").performClick()
+        composeRule.onNodeWithTag("histogram-mode-manual").assertIsSelected()
+        composeRule.onNodeWithTag("histogram-manual-class-count").assertIsDisplayed()
+        composeRule.onNodeWithTag("histogram-scale-percent").performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").assertIsSelected()
+        composeRule.onNodeWithTag("statistics-1d-graph-canvas").assertIsDisplayed()
+    }
+
     @Test fun prototypeIsReachableCanvasAccessibleAndCanResetSelection() {
         openPrototype()
         composeRule.onNodeWithTag("interactive-graph-canvas").assertIsDisplayed()

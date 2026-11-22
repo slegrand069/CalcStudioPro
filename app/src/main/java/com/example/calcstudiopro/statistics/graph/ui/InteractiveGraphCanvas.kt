@@ -76,22 +76,19 @@ fun InteractiveGraphCanvas(
     val resetViewport = rememberUpdatedState(onResetViewport)
     val exactSelection = selection?.let { details ->
         "Point sélectionné : X = ${exact(details.selection.point.x)}, Y = ${exact(details.selection.point.y)}" +
-            details.selection.point.details.joinToString(separator = "") { " · ${it.label} = ${exact(it.value)}" } +
+            details.selection.point.details.joinToString(separator = "") { " · ${it.label} = ${exact(it.value, it.wholeNumber)}" } +
             if (details.hitGroupSize > 1) " · ${details.positionInHitGroup} sur ${details.hitGroupSize} points dans la zone tactile" else ""
     }
-    val observationCount = snapshot.series.filter { it.kind != com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind.LINE }
-        .sumOf { series -> series.points.count { it.x.isFinite() && it.y.isFinite() } }
-
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Surface(color = colors.surfaceVariant, shape = MaterialTheme.shapes.small) {
             Canvas(
                 modifier = Modifier.fillMaxWidth().height(300.dp)
                     .testTag(testTag)
                     .semantics {
-                        contentDescription = "${snapshot.title}. Nuage de points interactif avec $observationCount observations. Pincez pour zoomer, glissez pour déplacer, touchez un point pour ses coordonnées exactes."
+                        contentDescription = "${snapshot.title}. Graphique interactif. Pincez pour zoomer, glissez pour déplacer, touchez un élément pour afficher ses valeurs."
                         stateDescription = exactSelection ?: "Aucun point sélectionné."
                         customActions = listOf(
-                            CustomAccessibilityAction("Sélectionner le point suivant") { cycleSelection.value(); true },
+                            CustomAccessibilityAction("Sélectionner l’élément suivant") { cycleSelection.value(); true },
                             CustomAccessibilityAction("Réinitialiser le cadrage") { resetViewport.value(); true }
                         )
                     }
@@ -143,4 +140,6 @@ fun InteractiveGraphCanvas(
     }
 }
 
-private fun exact(value: Double): String = java.lang.Double.toString(value).replace('.', ',')
+private fun exact(value: Double, wholeNumber: Boolean = false): String = if (wholeNumber && value % 1.0 == 0.0) {
+    value.toLong().toString()
+} else java.lang.Double.toString(value).replace('.', ',')

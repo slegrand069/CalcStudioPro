@@ -65,14 +65,14 @@ import androidx.compose.material.icons.filled.Save
 import com.example.calcstudiopro.ui.components.bringFocusedFieldIntoView
 
 @Composable
-fun StatisticsRoute(viewModel: StatisticsViewModel, onOpenModeSelector: () -> Unit, onOpenGraphs: () -> Unit = {}) {
+fun StatisticsRoute(viewModel: StatisticsViewModel, onOpenModeSelector: () -> Unit, onOpenGraphs: () -> Unit = {}, onOpenOneDGraphs: () -> Unit = {}) {
     val state by viewModel.state.collectAsState()
-    StatisticsScreen(state, onOpenModeSelector, viewModel, onOpenGraphs)
+    StatisticsScreen(state, onOpenModeSelector, viewModel, onOpenGraphs, onOpenOneDGraphs)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, viewModel: StatisticsViewModel, onOpenGraphs: () -> Unit = {}) {
+fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, viewModel: StatisticsViewModel, onOpenGraphs: () -> Unit = {}, onOpenOneDGraphs: () -> Unit = {}) {
     var showSaveDialog by remember { mutableStateOf(false) }
     var saveAs by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -129,7 +129,7 @@ fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, vie
                     ChoiceButton("1D", isOneD, Modifier.weight(1f).testTag("statistics-dimension-1d")) { viewModel.selectDimension(StatisticsDimension.ONE_D) }
                     ChoiceButton("2D", !isOneD, Modifier.weight(1f).testTag("statistics-dimension-2d")) { viewModel.selectDimension(StatisticsDimension.TWO_D) }
                 }
-                if (isOneD) DashboardOneD(state, oneD, viewModel, Modifier.weight(1f)) { showAllValues = true }
+                if (isOneD) DashboardOneD(state, oneD, viewModel, Modifier.weight(1f), onOpenOneDGraphs) { showAllValues = true }
                 else DashboardTwoD(state, twoD, fit, viewModel, Modifier.weight(1f), onOpenGraphs) { showAllValues = true }
             } else if (state.page == StatisticsPage.EDITOR) {
                 Editor(state, viewModel, clipboard, pasteText = { pasteText = it }, onFinish = viewModel::finishEditing)
@@ -228,7 +228,7 @@ fun StatisticsScreen(state: StatisticsState, onOpenModeSelector: () -> Unit, vie
 }
 
 @Composable
-private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Result?, viewModel: StatisticsViewModel, modifier: Modifier, onShowAll: () -> Unit) {
+private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Result?, viewModel: StatisticsViewModel, modifier: Modifier, onOpenGraphs: () -> Unit, onShowAll: () -> Unit) {
     val scroll = rememberScrollState()
     Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionCard("DONNÉES · ${state.oneDValues.size} observations · ${state.oneDValues.distinct().size} valeurs distinctes") {
@@ -264,6 +264,7 @@ private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Resul
             }
             TextButton(onClick = viewModel::save, modifier = Modifier.fillMaxWidth().testTag("statistics-save")) { Text("Ajouter ce résultat à l’historique") }
         }
+        OutlinedButton(onClick = onOpenGraphs, modifier = Modifier.fillMaxWidth().testTag("statistics-open-1d-graphs")) { Text("Graphiques statistiques 1D") }
     }
 }
 

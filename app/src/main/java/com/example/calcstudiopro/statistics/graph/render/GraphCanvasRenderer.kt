@@ -1,6 +1,7 @@
 package com.example.calcstudiopro.statistics.graph.render
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -108,8 +109,28 @@ private fun DrawScope.drawSeries(
     style: GraphRenderStyle
 ) {
     val color = style.pointColors[series.colorIndex.mod(style.pointColors.size)]
-    val line = series.kind != GraphSeriesKind.POINTS
-    val points = series.kind != GraphSeriesKind.LINE
+    val line = series.kind == GraphSeriesKind.LINE || series.kind == GraphSeriesKind.POINTS_AND_LINE
+    val points = series.kind != GraphSeriesKind.LINE && series.kind != GraphSeriesKind.BARS
+    series.bars.forEach { bar ->
+        if (listOf(bar.xMinimum, bar.xMaximum, bar.yMinimum, bar.yMaximum).all(Double::isFinite)) {
+            val first = transform.dataToScreen(DataPoint(bar.xMinimum, bar.yMaximum))
+            val second = transform.dataToScreen(DataPoint(bar.xMaximum, bar.yMinimum))
+            val left = minOf(first.x, second.x).toFloat()
+            val top = minOf(first.y, second.y).toFloat()
+            val width = kotlin.math.abs(second.x - first.x).toFloat().coerceAtLeast(0.5f)
+            val height = kotlin.math.abs(second.y - first.y).toFloat().coerceAtLeast(0.5f)
+            val selected = selection?.seriesId == series.id && selection.point.id == bar.id
+            val rectSize = Size(width, height)
+            drawRect(color.copy(alpha = bar.fillAlpha), Offset(left, top), rectSize)
+            if (selected || series.kind != GraphSeriesKind.BARS) {
+                drawRect(
+                    if (selected) style.selectedColor else color,
+                    Offset(left, top), rectSize,
+                    style = Stroke(width = if (selected) style.lineWidthDp.dp.toPx() + 1.dp.toPx() else 1.dp.toPx())
+                )
+            }
+        }
+    }
     if (line) {
         GraphPaths.connectedSegments(series.points).forEach { segment ->
             if (segment.size >= 2) {
@@ -121,6 +142,18 @@ private fun DrawScope.drawSeries(
                 }
                 drawPath(path, color, style = Stroke(width = style.lineWidthDp.dp.toPx()))
             }
+        }
+    }
+    series.segments.forEach { segment ->
+        if (listOf(segment.x1, segment.y1, segment.x2, segment.y2).all(Double::isFinite)) {
+            val start = transform.dataToScreen(DataPoint(segment.x1, segment.y1))
+            val end = transform.dataToScreen(DataPoint(segment.x2, segment.y2))
+            val selected = selection?.seriesId == series.id && selection.point.id == segment.id
+            drawLine(
+                if (selected) style.selectedColor else color,
+                Offset(start.x.toFloat(), start.y.toFloat()), Offset(end.x.toFloat(), end.y.toFloat()),
+                strokeWidth = style.lineWidthDp.dp.toPx() + if (selected) 2.dp.toPx() else 0f
+            )
         }
     }
     if (points) {
