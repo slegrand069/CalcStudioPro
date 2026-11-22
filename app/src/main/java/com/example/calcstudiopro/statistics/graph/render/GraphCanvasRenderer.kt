@@ -23,6 +23,7 @@ import com.example.calcstudiopro.statistics.graph.model.GraphSelection
 import com.example.calcstudiopro.statistics.graph.model.GraphSeries
 import com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind
 import com.example.calcstudiopro.statistics.graph.model.GraphSnapshot
+import com.example.calcstudiopro.statistics.graph.model.GraphTickMode
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.statistics.graph.model.PlotRect
 import kotlin.math.max
@@ -56,41 +57,41 @@ fun DrawScope.drawGraph(
     val transform = GraphTransform(viewport, plot)
     val tickStyle = TextStyle(color = style.labelColor, fontSize = 11.sp)
     val titleStyle = TextStyle(color = style.labelColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-    val xTicks = GraphTicks.calculate(viewport.x)
-    val yTicks = GraphTicks.calculate(viewport.y)
+    val xTicks = GraphTicks.calculate(viewport.x, (plot.width / (72.0 * density)).toInt().coerceIn(2, 12), snapshot.xTickMode)
+    val yTicks = GraphTicks.calculate(viewport.y, (plot.height / (42.0 * density)).toInt().coerceIn(2, 10), snapshot.yTickMode)
 
     if (snapshot.showGrid) {
-        xTicks.forEach { tick ->
+        if (snapshot.showXAxis) xTicks.forEach { tick ->
             val x = transform.dataToScreen(DataPoint(tick.value, viewport.y.minimum)).x.toFloat()
             drawLine(style.gridColor, Offset(x, plot.top.toFloat()), Offset(x, (plot.top + plot.height).toFloat()), 1f)
         }
-        yTicks.forEach { tick ->
+        if (snapshot.showYAxis) yTicks.forEach { tick ->
             val y = transform.dataToScreen(DataPoint(viewport.x.minimum, tick.value)).y.toFloat()
             drawLine(style.gridColor, Offset(plot.left.toFloat(), y), Offset((plot.left + plot.width).toFloat(), y), 1f)
         }
     }
 
-    drawLine(style.axisColor, Offset(plot.left.toFloat(), plot.top.toFloat()), Offset(plot.left.toFloat(), (plot.top + plot.height).toFloat()), 1.5f)
-    drawLine(style.axisColor, Offset(plot.left.toFloat(), (plot.top + plot.height).toFloat()), Offset((plot.left + plot.width).toFloat(), (plot.top + plot.height).toFloat()), 1.5f)
+    if (snapshot.showYAxis) drawLine(style.axisColor, Offset(plot.left.toFloat(), plot.top.toFloat()), Offset(plot.left.toFloat(), (plot.top + plot.height).toFloat()), 1.5f)
+    if (snapshot.showXAxis) drawLine(style.axisColor, Offset(plot.left.toFloat(), (plot.top + plot.height).toFloat()), Offset((plot.left + plot.width).toFloat(), (plot.top + plot.height).toFloat()), 1.5f)
 
-    xTicks.forEach { tick ->
+    if (snapshot.showTicks && snapshot.showXAxis) xTicks.forEach { tick ->
         val measured = textMeasurer.measure(AnnotatedString(tick.label), tickStyle)
         val x = transform.dataToScreen(DataPoint(tick.value, viewport.y.minimum)).x
         drawText(measured, topLeft = Offset((x - measured.size.width / 2.0).toFloat(), (plot.top + plot.height + 4.0 * density).toFloat()))
     }
-    yTicks.forEach { tick ->
+    if (snapshot.showTicks && snapshot.showYAxis) yTicks.forEach { tick ->
         val measured = textMeasurer.measure(AnnotatedString(tick.label), tickStyle)
         val y = transform.dataToScreen(DataPoint(viewport.x.minimum, tick.value)).y
         drawText(measured, topLeft = Offset((plot.left - measured.size.width - 6.0 * density).toFloat(), (y - measured.size.height / 2.0).toFloat()))
     }
 
     val xTitle = textMeasurer.measure(AnnotatedString(snapshot.xAxisLabel), titleStyle)
-    drawText(xTitle, topLeft = Offset(
+    if (snapshot.showXAxis && snapshot.xAxisLabel.isNotBlank()) drawText(xTitle, topLeft = Offset(
         (plot.left + plot.width / 2.0 - xTitle.size.width / 2.0).toFloat(),
         (plot.top + plot.height + 30.0 * density).toFloat()
     ))
     val yTitle = textMeasurer.measure(AnnotatedString(snapshot.yAxisLabel), titleStyle)
-    rotate(-90f, pivot = Offset((18.0 * density).toFloat(), (plot.top + plot.height / 2.0).toFloat())) {
+    if (snapshot.showYAxis && snapshot.yAxisLabel.isNotBlank()) rotate(-90f, pivot = Offset((18.0 * density).toFloat(), (plot.top + plot.height / 2.0).toFloat())) {
         drawText(yTitle, topLeft = Offset(
             (18.0 * density - yTitle.size.width / 2.0).toFloat(),
             (plot.top + plot.height / 2.0 - yTitle.size.height / 2.0).toFloat()

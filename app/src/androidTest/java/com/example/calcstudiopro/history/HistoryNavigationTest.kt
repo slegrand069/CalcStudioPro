@@ -119,7 +119,8 @@ class HistoryNavigationTest {
     fun statisticsModeEditsAndDisplaysAReadableAnalysis() {
         composeRule.onNodeWithTag("calculator-key-MODE").performClick()
         composeRule.onNodeWithTag("mode-option-statistics").performClick()
-        composeRule.onNodeWithText("Aucune donnée. Modifiez la série pour commencer.").assertIsDisplayed()
+        // A previous instrumentation run may have persisted a session; verify the stable STAT entry point instead of assuming an empty database.
+        composeRule.onNodeWithTag("statistics-dimension-1d").assertIsDisplayed()
         composeRule.onNodeWithTag("statistics-mode").performClick()
         composeRule.onNodeWithTag("mode-option-history").performClick()
         composeRule.onNodeWithTag("history-empty").assertIsDisplayed()

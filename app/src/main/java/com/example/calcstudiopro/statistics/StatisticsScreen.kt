@@ -60,9 +60,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Save
 import com.example.calcstudiopro.ui.components.bringFocusedFieldIntoView
+import com.example.calcstudiopro.statistics.graph.HistogramClassMode
+import com.example.calcstudiopro.statistics.graph.HistogramScale
+import com.example.calcstudiopro.statistics.graph.HistogramStatistics
+import com.example.calcstudiopro.statistics.graph.Statistics1DGraphFactory
+import com.example.calcstudiopro.statistics.graph.StatisticsGraphFactory
+import com.example.calcstudiopro.statistics.graph.ui.GraphPreview
 
 @Composable
 fun StatisticsRoute(viewModel: StatisticsViewModel, onOpenModeSelector: () -> Unit, onOpenGraphs: () -> Unit = {}, onOpenOneDGraphs: () -> Unit = {}) {
@@ -264,6 +271,13 @@ private fun DashboardOneD(state: StatisticsState, result: StatisticsEngine.Resul
             }
             TextButton(onClick = viewModel::save, modifier = Modifier.fillMaxWidth().testTag("statistics-save")) { Text("Ajouter ce résultat à l’historique") }
         }
+        SectionCard("APERÇU · HISTOGRAMME") {
+            val preview = if (state.oneDValues.isEmpty()) null else Statistics1DGraphFactory.histogram(
+                HistogramStatistics.calculate(state.oneDValues, HistogramClassMode.AUTOMATIC), HistogramScale.COUNT
+            )
+            GraphPreview(preview, onOpenGraphs, "Aucune donnée à représenter.", "statistics-1d-graph-preview")
+            Text("Toucher pour ouvrir l’explorateur.", style = MaterialTheme.typography.bodySmall)
+        }
         OutlinedButton(onClick = onOpenGraphs, modifier = Modifier.fillMaxWidth().testTag("statistics-open-1d-graphs")) { Text("Graphiques statistiques 1D") }
     }
 }
@@ -299,6 +313,15 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                 Metric("Variance échantillon X / Y", "${it.x.sampleVariance?.let(StatisticsEngine::format) ?: "—"} / ${it.y.sampleVariance?.let(StatisticsEngine::format) ?: "—"}")
                 Metric("Covariance population", it.covariancePopulation?.let(StatisticsEngine::format) ?: "Non définie")
             }
+        }
+        SectionCard("APERÇU · NUAGE + RÉGRESSION") {
+            val activeFit = state.selectedFit.fit?.takeIf { !state.fitLoading && it.model == state.model }
+            val preview = if (state.twoDPoints.isEmpty()) null else StatisticsGraphFactory.regressionScatter(
+                state.twoDPoints, activeFit, state.selectedFit.unavailableReason
+            ).snapshot
+            GraphPreview(preview, onOpenGraphs, "Aucune donnée à représenter.", "statistics-2d-graph-preview")
+            if (state.fitLoading) Text("Actualisation de l’ajustement…", style = MaterialTheme.typography.bodySmall)
+            Text("Toucher pour ouvrir l’explorateur.", style = MaterialTheme.typography.bodySmall)
         }
         SectionCard("RÉGRESSION") {
             TextButton(onClick = { modelExpanded = true }, modifier = Modifier.testTag("statistics-model-select")) { Text("Modèle : ${modelLabel(state.model)} ▾") }
@@ -416,6 +439,7 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
 private fun Editor(state: StatisticsState, viewModel: StatisticsViewModel, clipboard: androidx.compose.ui.platform.ClipboardManager,
     pasteText: (String) -> Unit, onFinish: () -> Unit) {
     var quickInput by remember { mutableStateOf("") }
+    var confirmClear by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (state.dimension == StatisticsDimension.ONE_D) {
             Text("Présentation 1D")
@@ -439,10 +463,27 @@ private fun Editor(state: StatisticsState, viewModel: StatisticsViewModel, clipb
                 quickInput = ""
             }) { Text("Ajouter la saisie") }
         }
+        OutlinedButton(
+            onClick = { confirmClear = true },
+            enabled = if (state.dimension == StatisticsDimension.ONE_D) state.oneDValues.isNotEmpty() else state.twoDPoints.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag("statistics-clear-data")
+        ) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                Text("Réinitialiser les données")
+            }
+        }
         state.pasteUndo?.let { TextButton(onClick = viewModel::undoPaste) { Text("Annuler le collage") } }
         state.storageError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = onFinish, modifier = Modifier.fillMaxWidth()) { Text("Terminer") }
     }
+    if (confirmClear) AlertDialog(
+        onDismissRequest = { confirmClear = false },
+        title = { Text("Réinitialiser les données ?") },
+        text = { Text("Supprimer toutes les observations de cette session ? Cette action est irréversible.") },
+        confirmButton = { TextButton(onClick = { viewModel.clearCurrentData(); confirmClear = false }) { Text("Tout supprimer") } },
+        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Annuler") } }
+    )
 }
 
 @Composable

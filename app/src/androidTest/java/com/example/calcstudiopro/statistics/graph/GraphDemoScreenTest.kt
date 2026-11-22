@@ -25,6 +25,9 @@ class GraphDemoScreenTest {
         composeRule.onNodeWithTag("statistics-graph-tab-regression").performClick()
         composeRule.onNodeWithTag("statistics-graph-tab-regression").assertIsSelected()
         composeRule.onNodeWithTag("statistics-graph-model").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-graph-options").performClick()
+        composeRule.onNodeWithTag("graph-option-regression").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("graph-option-grid").assertIsDisplayed()
     }
 
     @Test fun oneDGraphNavigationOffersHistogramSettingsAndTukeyView() {
@@ -33,14 +36,16 @@ class GraphDemoScreenTest {
         composeRule.onNodeWithTag("statistics-dimension-1d").performClick()
         composeRule.onNodeWithTag("statistics-open-1d-graphs").performScrollTo().performClick()
         composeRule.onNodeWithTag("statistics-1d-graph-canvas").assertIsDisplayed()
-        composeRule.onNodeWithTag("histogram-mode-automatic").assertIsSelected()
-        composeRule.onNodeWithTag("histogram-mode-manual").performClick()
-        composeRule.onNodeWithTag("histogram-mode-manual").assertIsSelected()
-        composeRule.onNodeWithTag("histogram-manual-class-count").assertIsDisplayed()
-        composeRule.onNodeWithTag("histogram-scale-percent").performClick()
         composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").performClick()
         composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").assertIsSelected()
         composeRule.onNodeWithTag("statistics-1d-graph-canvas").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-1d-graph-tab-histogram").performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-options").performClick()
+        composeRule.onNodeWithTag("histogram-mode-automatic").assertIsSelected()
+        composeRule.onNodeWithTag("histogram-mode-manual").performScrollTo().performClick()
+        composeRule.onNodeWithTag("histogram-mode-manual").assertIsSelected()
+        composeRule.onNodeWithTag("histogram-manual-class-count").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("histogram-scale-percent").performScrollTo().performClick()
     }
 
     @Test fun prototypeIsReachableCanvasAccessibleAndCanResetSelection() {
@@ -50,7 +55,7 @@ class GraphDemoScreenTest {
         composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("X =", substring = true)
         composeRule.onNodeWithTag("graph-demo-reset").performClick()
         composeRule.onNodeWithTag("graph-demo-status").assertTextContains("Cadrage réinitialisé", substring = true)
-        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Touchez un point", substring = true)
+        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Touchez un élément", substring = true)
     }
 
     @Test fun tenThousandObservationModeCanBeEnabledAndHasAccessibleCanvas() {

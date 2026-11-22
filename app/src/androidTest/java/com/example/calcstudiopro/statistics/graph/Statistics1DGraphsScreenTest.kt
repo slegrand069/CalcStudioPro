@@ -29,12 +29,12 @@ class Statistics1DGraphsScreenTest {
         canvas.assertIsDisplayed().performTouchInput { click(center) }
         composeRule.mainClock.advanceTimeBy(500)
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Effectif = 8", substring = true)
+        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Effectif : 8", substring = true)
         composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").performClick()
         composeRule.onNodeWithTag("statistics-1d-graph-canvas").performScrollTo().performTouchInput { click(center) }
         composeRule.mainClock.advanceTimeBy(500)
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Q1 = -2,5", substring = true)
+        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Q1 : -2,5", substring = true)
     }
 
     @Test fun tenThousandObservationsRenderBothOneDCharts() {
@@ -56,5 +56,16 @@ class Statistics1DGraphsScreenTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("statistics-1d-observation-count").assertTextContains("4 observations")
         composeRule.onNodeWithTag("statistics-1d-graph-canvas").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun histogramOptionsLiveInSheetAndApplyImmediately() {
+        composeRule.setContent { Statistics1DGraphsScreen(StatisticsState(oneDValues = listOf(1.0, 2.0, 3.0, 4.0)), onBack = {}) }
+        composeRule.onNodeWithTag("statistics-1d-graph-options").performClick()
+        composeRule.onNodeWithTag("histogram-mode-manual").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("histogram-manual-class-count").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("graph-option-grid").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("histogram-scale-percent").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("statistics-1d-graph-canvas").assertIsDisplayed()
     }
 }

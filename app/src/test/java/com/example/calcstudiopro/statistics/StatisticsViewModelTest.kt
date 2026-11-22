@@ -5,6 +5,7 @@ import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +16,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StatisticsViewModelTest {
+    private class StatisticsMemoryDao : StatisticsDao {
+        val stored = mutableMapOf<String, StatisticsSessionEntity>()
+        override fun sessions(): kotlinx.coroutines.flow.Flow<List<StatisticsSessionEntity>> = flowOf(stored.values.toList())
+        override suspend fun session(dimension: String): StatisticsSessionEntity? = stored[dimension]
+        override suspend fun saveSession(session: StatisticsSessionEntity) { stored[session.dimension] = session }
+        override fun series(): kotlinx.coroutines.flow.Flow<List<StatisticsSeriesEntity>> = emptyFlow()
+        override suspend fun series(id: Long): StatisticsSeriesEntity? = null
+        override suspend fun insertSeries(series: StatisticsSeriesEntity): Long = 1L
+        override suspend fun updateSeries(id: Long, name: String, description: String, dataJson: String, updatedAt: Long): Int = 0
+        override suspend fun deleteSeries(id: Long): Int = 0
+    }
+
     private class Repo : HistoryRepository {
         override val entries: Flow<List<HistoryEntry>> = emptyFlow()
         val saved = mutableListOf<NewHistoryEntry>()
@@ -50,6 +63,33 @@ class StatisticsViewModelTest {
         assertEquals(2, vm.state.value.twoDPoints.size)
         vm.selectDimension(StatisticsDimension.ONE_D)
         assertEquals(listOf(1.0, 1.0, 2.5), vm.state.value.oneDValues)
+    }
+
+    @Test fun clearCurrentDataKeepsEditorAndPersistsOnlyTheActiveDimension() = runBlocking {
+        val dao = StatisticsMemoryDao()
+        val vm = StatisticsViewModel(coroutineScopeOverride = CoroutineScope(Dispatchers.Unconfined), dao = dao)
+        vm.editOneD("1\n2\n3")
+        vm.finishEditing()
+        vm.openEditor()
+        vm.clearCurrentData()
+        withTimeout(5_000) { while (dao.session("ONE_D")?.dataJson?.contains("\"values\":[]") != true) kotlinx.coroutines.delay(10) }
+        assertEquals(StatisticsPage.EDITOR, vm.state.value.page)
+        assertTrue(vm.state.value.oneDValues.isEmpty())
+        assertNull(vm.state.value.result)
+        assertTrue(vm.state.value.oneDDirty)
+        assertEquals(emptyList<Double>(), (StatisticsDataCodec.decode(dao.session("ONE_D")!!.dataJson) as StoredStatisticsData.OneD).values)
+
+        val oneDSession = dao.session("ONE_D")
+        vm.selectDimension(StatisticsDimension.TWO_D)
+        vm.editTwoD("4\t5\n6\t7")
+        vm.finishEditing()
+        vm.openEditor()
+        vm.clearCurrentData()
+        withTimeout(5_000) { while (dao.session("TWO_D")?.dataJson?.contains("\"pairs\":[]") != true) kotlinx.coroutines.delay(10) }
+        assertEquals(StatisticsPage.EDITOR, vm.state.value.page)
+        assertTrue(vm.state.value.twoDPoints.isEmpty())
+        assertEquals(oneDSession?.dataJson, dao.session("ONE_D")?.dataJson)
+        assertEquals(emptyList<Statistics2DEngine.PairValue>(), (StatisticsDataCodec.decode(dao.session("TWO_D")!!.dataJson) as StoredStatisticsData.TwoD).points)
     }
 
     @Test fun comparisonAndRecommendationRefreshWhenTwoDDatasetIsReplaced() = runBlocking {

@@ -8,6 +8,7 @@ import com.example.calcstudiopro.statistics.graph.model.GraphSegment
 import com.example.calcstudiopro.statistics.graph.model.GraphSeries
 import com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind
 import com.example.calcstudiopro.statistics.graph.model.GraphSnapshot
+import com.example.calcstudiopro.statistics.graph.model.GraphTickMode
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -25,23 +26,24 @@ object Statistics1DGraphFactory {
                 yMinimum = 0.0,
                 yMaximum = height,
                 details = listOf(
-                    GraphPointDetail("Borne inférieure", bin.lower),
-                    GraphPointDetail("Borne supérieure", bin.upper),
+                    GraphPointDetail("Borne inférieure [incluse]", bin.lower),
+                    GraphPointDetail("Borne supérieure ${if (index == result.bins.lastIndex) "incluse" else "exclue"}", bin.upper),
                     GraphPointDetail("Effectif", bin.count.toDouble(), wholeNumber = true),
-                    GraphPointDetail("Fréquence (%)", bin.percent)
+                    GraphPointDetail("Fréquence", bin.percent, percentage = true)
                 )
             )
         }
         return GraphSnapshot(
             "Histogramme des observations 1D",
             "Valeur",
-            if (scale == HistogramScale.COUNT) "Effectif" else "Fréquence (%)",
-            listOf(GraphSeries("histogram", "Classes", points = emptyList(), kind = GraphSeriesKind.BARS, bars = bars))
+            if (scale == HistogramScale.COUNT) "Effectif" else "Fréquence",
+            listOf(GraphSeries("histogram", "Classes", points = emptyList(), kind = GraphSeriesKind.BARS, bars = bars)),
+            yTickMode = if (scale == HistogramScale.COUNT) GraphTickMode.INTEGER else GraphTickMode.PERCENT
         )
     }
 
     fun tukeyBoxPlot(result: TukeyResult): GraphSnapshot {
-        val summary = result.summary ?: return GraphSnapshot("Boîte à moustaches de Tukey", "Valeur", "Décalage visuel", emptyList())
+        val summary = result.summary ?: return GraphSnapshot("Boîte à moustaches de Tukey", "Valeur", "", emptyList(), showGrid = false, showYAxis = false)
         val boxBounds = if (summary.q1 == summary.q3) expandedConstant(summary.q1) else summary.q1 to summary.q3
         val center = 0.0
         val boxHalfHeight = 0.34
@@ -54,10 +56,10 @@ object Statistics1DGraphFactory {
         }
         val segments = listOf(
             GraphSegment("whisker-lower", summary.lowerWhisker, center, summary.q1, center, listOf(
-                GraphPointDetail("Moustache basse", summary.lowerWhisker), GraphPointDetail("Q1", summary.q1)
+                GraphPointDetail("Moustache inférieure", summary.lowerWhisker), GraphPointDetail("Q1", summary.q1)
             )),
             GraphSegment("cap-lower", summary.lowerWhisker, -capHalfHeight, summary.lowerWhisker, capHalfHeight,
-                listOf(GraphPointDetail("Extrémité basse", summary.lowerWhisker))),
+                listOf(GraphPointDetail("Moustache inférieure", summary.lowerWhisker))),
             GraphSegment("box-left", boxBounds.first, -boxHalfHeight, boxBounds.first, boxHalfHeight,
                 listOf(GraphPointDetail("Q1", summary.q1))),
             GraphSegment("box-top", boxBounds.first, boxHalfHeight, boxBounds.second, boxHalfHeight, boxDetails),
@@ -67,10 +69,10 @@ object Statistics1DGraphFactory {
             GraphSegment("median", summary.median, -boxHalfHeight, summary.median, boxHalfHeight,
                 listOf(GraphPointDetail("Médiane", summary.median))),
             GraphSegment("whisker-upper", summary.q3, center, summary.upperWhisker, center, listOf(
-                GraphPointDetail("Q3", summary.q3), GraphPointDetail("Moustache haute", summary.upperWhisker)
+                GraphPointDetail("Q3", summary.q3), GraphPointDetail("Moustache supérieure", summary.upperWhisker)
             )),
             GraphSegment("cap-upper", summary.upperWhisker, -capHalfHeight, summary.upperWhisker, capHalfHeight,
-                listOf(GraphPointDetail("Extrémité haute", summary.upperWhisker)))
+                listOf(GraphPointDetail("Moustache supérieure", summary.upperWhisker)))
         )
         val box = GraphBar(
             id = "box-area",
@@ -91,20 +93,22 @@ object Statistics1DGraphFactory {
                 id = "outlier:$index",
                 x = value,
                 y = visualOffset,
-                details = listOf(
-                    GraphPointDetail("Valeur atypique", value),
-                    GraphPointDetail("Multiplicité", multiplicity.toDouble(), wholeNumber = true)
-                )
+                details = buildList {
+                    add(GraphPointDetail("Valeur atypique", value))
+                    if (multiplicity > 1) add(GraphPointDetail("Multiplicité", multiplicity.toDouble(), wholeNumber = true))
+                }
             )
         }
         return GraphSnapshot(
             "Boîte à moustaches de Tukey",
             "Valeur",
-            "Décalage visuel",
+            "",
             listOf(
                 GraphSeries("tukey-structure", "Boîte et moustaches", points = emptyList(), kind = GraphSeriesKind.POINTS, bars = listOf(box), segments = segments),
                 GraphSeries("tukey-outliers", "Valeurs atypiques", outliers, colorIndex = 3)
-            )
+            ),
+            showGrid = false,
+            showYAxis = false
         )
     }
 

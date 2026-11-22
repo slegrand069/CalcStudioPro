@@ -32,7 +32,10 @@ object StatisticsGraphFactory {
                 x = pair.x,
                 y = pair.y,
                 details = buildList {
-                    add(GraphPointDetail("Multiplicité", (multiplicities[pair.x to pair.y] ?: 1).toDouble()))
+                    add(GraphPointDetail("X observé", pair.x))
+                    add(GraphPointDetail("Y observé", pair.y))
+                    val multiplicity = multiplicities[pair.x to pair.y] ?: 1
+                    if (multiplicity > 1) add(GraphPointDetail("Multiplicité", multiplicity.toDouble(), wholeNumber = true))
                     prediction?.let {
                         add(GraphPointDetail("ŷ", it))
                         (pair.y - it).takeIf(Double::isFinite)?.let { residual -> add(GraphPointDetail("Résidu", residual)) }
@@ -92,11 +95,13 @@ object StatisticsGraphFactory {
                     x = pair.x,
                     y = residual,
                     details = listOf(
+                        GraphPointDetail("X observé", pair.x),
                         GraphPointDetail("Y observé", pair.y),
                         GraphPointDetail("ŷ", prediction),
                         GraphPointDetail("Résidu", residual),
-                        GraphPointDetail("Multiplicité", (multiplicities[pair.x to pair.y] ?: 1).toDouble())
-                    )
+                    ) + (multiplicities[pair.x to pair.y] ?: 1).takeIf { it > 1 }?.let {
+                        listOf(GraphPointDetail("Multiplicité", it.toDouble(), wholeNumber = true))
+                    }.orEmpty()
                 )
             }
         }

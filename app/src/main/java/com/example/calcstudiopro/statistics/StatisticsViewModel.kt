@@ -120,6 +120,26 @@ class StatisticsViewModel(
     }
     fun editTwoD(text: String) { mutableState.value = mutableState.value.copy(twoDText = text, storageError = null) }
 
+    /** Clears only the active dimension's observations and persists the current draft session. */
+    fun clearCurrentData() {
+        val current = mutableState.value
+        when (current.dimension) {
+            StatisticsDimension.ONE_D -> {
+                val next = current.copy(oneDValues = emptyList(), oneDText = "", oneDFrequencyText = "", input = "", result = null,
+                    error = null, oneDDirty = true, pasteUndo = null, storageError = null)
+                mutableState.value = next
+                persistSession(next, StatisticsDimension.ONE_D)
+            }
+            StatisticsDimension.TWO_D -> {
+                val next = current.copy(twoDPoints = emptyList(), twoDText = "", twoDDirty = true, pasteUndo = null, storageError = null)
+                mutableState.value = next
+                persistSession(next, StatisticsDimension.TWO_D)
+                computeSelectedFit(emptyList(), next.model)
+                twoDPointsChanged(emptyList())
+            }
+        }
+    }
+
     fun finishEditing() {
         val s = mutableState.value
         when (s.dimension) {

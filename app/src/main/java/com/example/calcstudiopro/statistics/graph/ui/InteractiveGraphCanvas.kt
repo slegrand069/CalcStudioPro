@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +32,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.calcstudiopro.statistics.graph.domain.GraphHitTesting
+import com.example.calcstudiopro.statistics.graph.domain.GraphNumberFormatter
 import com.example.calcstudiopro.statistics.graph.domain.GraphTransform
 import com.example.calcstudiopro.statistics.graph.domain.panByPixels
 import com.example.calcstudiopro.statistics.graph.domain.zoomAt
@@ -74,10 +77,12 @@ fun InteractiveGraphCanvas(
     val changeSelection = rememberUpdatedState(onSelectionChange)
     val cycleSelection = rememberUpdatedState(onCycleSelection)
     val resetViewport = rememberUpdatedState(onResetViewport)
+    val selectedPoint = selection?.selection?.point
+    val hasSemanticDetails = selectedPoint?.details?.isNotEmpty() == true
     val exactSelection = selection?.let { details ->
-        "Point sélectionné : X = ${exact(details.selection.point.x)}, Y = ${exact(details.selection.point.y)}" +
-            details.selection.point.details.joinToString(separator = "") { " · ${it.label} = ${exact(it.value, it.wholeNumber)}" } +
-            if (details.hitGroupSize > 1) " · ${details.positionInHitGroup} sur ${details.hitGroupSize} points dans la zone tactile" else ""
+        val coordinates = if (hasSemanticDetails) "" else "X = ${GraphNumberFormatter.format(details.selection.point.x)} · Y = ${GraphNumberFormatter.format(details.selection.point.y)}"
+        val group = if (details.hitGroupSize > 1) "${details.positionInHitGroup} sur ${details.hitGroupSize} éléments superposés" else ""
+        listOf(coordinates, group).filter(String::isNotBlank).joinToString(" · ")
     }
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Surface(color = colors.surfaceVariant, shape = MaterialTheme.shapes.small) {
@@ -131,15 +136,19 @@ fun InteractiveGraphCanvas(
                 drawGraph(snapshot, viewport, selection?.selection, renderStyle, textMeasurer)
             }
         }
-        Text(
-            exactSelection ?: "Touchez un point pour afficher ses coordonnées exactes.",
-            modifier = Modifier.fillMaxWidth().testTag("graph-selected-coordinates"),
-            style = MaterialTheme.typography.bodyMedium,
-            fontSize = 14.sp
-        )
+        if (selection == null) Text("Touchez un élément pour afficher ses détails.", Modifier.fillMaxWidth().testTag("graph-selected-coordinates"),
+            style = MaterialTheme.typography.bodyMedium, fontSize = 14.sp)
+        else Surface(color = colors.surfaceContainerLow, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("graph-selected-coordinates").semantics(mergeDescendants = true) {}) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(exactSelection?.takeIf(String::isNotBlank) ?: "Élément sélectionné", style = MaterialTheme.typography.titleSmall)
+                if (hasSemanticDetails) {
+                    HorizontalDivider()
+                    selectedPoint!!.details.forEach { detail ->
+                        Text("${detail.label} : ${GraphNumberFormatter.format(detail.value, detail.wholeNumber, detail.percentage)}",
+                            style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
     }
 }
-
-private fun exact(value: Double, wholeNumber: Boolean = false): String = if (wholeNumber && value % 1.0 == 0.0) {
-    value.toLong().toString()
-} else java.lang.Double.toString(value).replace('.', ',')

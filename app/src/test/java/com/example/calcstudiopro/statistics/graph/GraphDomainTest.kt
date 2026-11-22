@@ -4,6 +4,7 @@ import com.example.calcstudiopro.statistics.graph.domain.GraphHitTesting
 import com.example.calcstudiopro.statistics.graph.domain.GraphPaths
 import com.example.calcstudiopro.statistics.graph.domain.GraphRange
 import com.example.calcstudiopro.statistics.graph.domain.GraphTicks
+import com.example.calcstudiopro.statistics.graph.domain.GraphNumberFormatter
 import com.example.calcstudiopro.statistics.graph.domain.GraphTransform
 import com.example.calcstudiopro.statistics.graph.domain.panByPixels
 import com.example.calcstudiopro.statistics.graph.domain.zoomAt
@@ -15,6 +16,7 @@ import com.example.calcstudiopro.statistics.graph.model.GraphSeries
 import com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind
 import com.example.calcstudiopro.statistics.graph.model.GraphSnapshot
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
+import com.example.calcstudiopro.statistics.graph.model.GraphTickMode
 import com.example.calcstudiopro.statistics.graph.model.PlotRect
 import com.example.calcstudiopro.statistics.graph.model.ScreenPoint
 import org.junit.Assert.assertEquals
@@ -73,8 +75,23 @@ class GraphDomainTest {
         assertTrue(ticks.isNotEmpty() && ticks.size <= 20)
         assertTrue(ticks.all { it.value.isFinite() && it.label.isNotBlank() })
         assertTrue(ticks.zipWithNext().all { (a, b) -> a.value < b.value })
-        assertEquals("1,235", GraphTicks.format(1.23456))
+        assertEquals("1,23456", GraphTicks.format(1.23456))
         assertTrue(GraphTicks.calculate(AxisRange(-1e-300, 1e-300)).all { it.value.isFinite() })
+        val subnormal = GraphTicks.calculate(AxisRange(-Double.MIN_VALUE, 2.0 * Double.MIN_VALUE))
+        assertTrue(subnormal.isNotEmpty() && subnormal.all { it.value.isFinite() })
+    }
+
+    @Test fun ticksUseReadableNiceStepsAndHistogramSpecificFormats() {
+        val ticks = GraphTicks.calculate(AxisRange(0.0, 12.0), targetCount = 6)
+        assertTrue(ticks.map { it.value }.zipWithNext().all { (a, b) -> abs((b - a) - 2.0) < 1e-12 })
+        val counts = GraphTicks.calculate(AxisRange(-0.1, 4.1), targetCount = 6, mode = GraphTickMode.INTEGER)
+        assertTrue(counts.isNotEmpty() && counts.all { it.value % 1.0 == 0.0 })
+        val percentages = GraphTicks.calculate(AxisRange(0.0, 100.0), targetCount = 5, mode = GraphTickMode.PERCENT)
+        assertTrue(percentages.any { it.label.endsWith("%") })
+        assertEquals("23,75", GraphNumberFormatter.format(23.750000000000004))
+        assertEquals("0,00 %", GraphNumberFormatter.format(-0.0001, percentage = true))
+        assertFalse(GraphNumberFormatter.format(1e-30).contains("-0"))
+        assertTrue(GraphNumberFormatter.format(1e-30).contains("E"))
     }
 
     @Test fun zoomKeepsFocalPointFixedAndPanFollowsTheFinger() {

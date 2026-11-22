@@ -2,6 +2,7 @@ package com.example.calcstudiopro.statistics.graph
 
 import com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,9 +15,11 @@ class Statistics1DGraphFactoryTest {
         assertEquals(GraphSeriesKind.BARS, series.kind)
         assertEquals(histogram.bins.size, series.bars.size)
         assertEquals(50.0, series.bars.first().yMaximum, 0.0)
-        assertTrue(series.bars.first().details.any { it.label == "Borne inférieure" && it.value == 1.0 })
+        assertTrue(series.bars.first().details.any { it.label == "Borne inférieure [incluse]" && it.value == 1.0 })
         assertTrue(series.bars.first().details.any { it.label == "Effectif" && it.value == 2.0 })
-        assertTrue(series.bars.first().details.any { it.label == "Fréquence (%)" && it.value == 50.0 })
+        assertTrue(series.bars.first().details.any { it.label == "Fréquence" && it.value == 50.0 && it.percentage })
+        assertTrue(series.bars.last().details.any { it.label == "Borne supérieure incluse" })
+        assertTrue(series.bars.first().details.any { it.label == "Borne supérieure exclue" })
     }
 
     @Test fun duplicateOutliersRemainSeparatePointsWithDistinctVisualOffsets() {
@@ -26,6 +29,8 @@ class Statistics1DGraphFactoryTest {
         val outliers = graph.series.last().points
         assertEquals(1, structures.bars.size)
         assertEquals(9, structures.segments.size)
+        assertFalse(graph.showYAxis)
+        assertFalse(graph.showGrid)
         assertEquals(2, outliers.size)
         assertNotEquals(outliers[0].id, outliers[1].id)
         assertNotEquals(outliers[0].y, outliers[1].y)

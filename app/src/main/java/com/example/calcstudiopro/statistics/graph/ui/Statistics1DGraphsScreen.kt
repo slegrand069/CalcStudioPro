@@ -16,12 +16,15 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -31,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -66,19 +71,32 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
     var classMode by remember { mutableStateOf(HistogramClassMode.AUTOMATIC) }
     var manualClassesText by remember { mutableStateOf("5") }
     var scale by remember { mutableStateOf(HistogramScale.COUNT) }
+    var showGrid by remember { mutableStateOf(true) }
+    var showTicks by remember { mutableStateOf(true) }
+    var showOptions by remember { mutableStateOf(false) }
+    LaunchedEffect(state.oneDValues, state.oneDSourceSeriesId, state.oneDDirty) {
+        classMode = HistogramClassMode.AUTOMATIC
+        manualClassesText = "5"
+        scale = HistogramScale.COUNT
+        showGrid = true
+        showTicks = true
+    }
     val requestedClasses = manualClassesText.toIntOrNull() ?: 1
     val histogram = remember(state.oneDValues, classMode, requestedClasses) {
         HistogramStatistics.calculate(state.oneDValues, classMode, requestedClasses)
     }
     val tukey = remember(state.oneDValues) { TukeyStatistics.calculate(state.oneDValues) }
-    val graphData = remember(selectedTab, histogram, tukey, scale) {
+    val baseGraphData = remember(selectedTab, histogram, tukey, scale) {
         when (selectedTab) {
             OneDGraphTab.HISTOGRAM -> Statistics1DGraphFactory.histogram(histogram, scale)
             OneDGraphTab.TUKEY -> Statistics1DGraphFactory.tukeyBoxPlot(tukey)
         }
     }
-    var viewport by remember(graphData) { mutableStateOf(GraphRange.autoFit(graphData)) }
-    var selection by remember(graphData) { mutableStateOf<GraphSelectionDetails?>(null) }
+    val graphData = remember(baseGraphData, showGrid, showTicks) {
+        if (selectedTab == OneDGraphTab.HISTOGRAM) baseGraphData.copy(showGrid = showGrid, showTicks = showTicks) else baseGraphData
+    }
+    var viewport by remember(baseGraphData, state.oneDSourceSeriesId, state.oneDDirty) { mutableStateOf(GraphRange.autoFit(baseGraphData)) }
+    var selection by remember(baseGraphData, state.oneDSourceSeriesId, state.oneDDirty) { mutableStateOf<GraphSelectionDetails?>(null) }
     val classLimit = minOf(HistogramStatistics.MAX_MANUAL_CLASSES, state.oneDValues.count(Double::isFinite)).coerceAtLeast(1)
 
     Scaffold(
@@ -90,6 +108,11 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
                     IconButton(onClick = onBack, modifier = Modifier.testTag("statistics-1d-graphs-back")) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour aux statistiques")
                     }
+                },
+                actions = {
+                    IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("statistics-1d-graph-options")) {
+                        Icon(Icons.Default.Tune, contentDescription = "Options du graphique")
+                    }
                 }
             )
         }
@@ -99,7 +122,7 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            PrimaryScrollableTabRow(selectedTabIndex = selectedTab.ordinal, edgePadding = 0.dp, modifier = Modifier.fillMaxWidth().testTag("statistics-1d-graph-tabs")) {
+            androidx.compose.material3.PrimaryTabRow(selectedTabIndex = selectedTab.ordinal, modifier = Modifier.fillMaxWidth().testTag("statistics-1d-graph-tabs")) {
                 OneDGraphTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == selectedTab,
@@ -113,44 +136,7 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
                 modifier = Modifier.testTag("statistics-1d-observation-count"))
 
             if (selectedTab == OneDGraphTab.HISTOGRAM) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = classMode == HistogramClassMode.AUTOMATIC,
-                        onClick = { classMode = HistogramClassMode.AUTOMATIC },
-                        label = { Text("Automatique") }, modifier = Modifier.testTag("histogram-mode-automatic")
-                    )
-                    FilterChip(
-                        selected = classMode == HistogramClassMode.MANUAL,
-                        onClick = { classMode = HistogramClassMode.MANUAL },
-                        label = { Text("Manuel") }, modifier = Modifier.testTag("histogram-mode-manual")
-                    )
-                }
-                if (classMode == HistogramClassMode.MANUAL) {
-                    OutlinedTextField(
-                        value = manualClassesText,
-                        onValueChange = { if (it.isEmpty() || it.all(Char::isDigit)) manualClassesText = it },
-                        label = { Text("Nombre de classes") },
-                        supportingText = { Text("De 1 à $classLimit classes (maximum 100).") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().testTag("histogram-manual-class-count")
-                    )
-                    Text("${histogram.bins.size} classe(s) utilisée(s).", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    Text("${histogram.bins.size} classes · règle de Sturges", style = MaterialTheme.typography.bodySmall)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = scale == HistogramScale.COUNT,
-                        onClick = { scale = HistogramScale.COUNT },
-                        label = { Text("Effectif") }, modifier = Modifier.testTag("histogram-scale-count")
-                    )
-                    FilterChip(
-                        selected = scale == HistogramScale.PERCENT,
-                        onClick = { scale = HistogramScale.PERCENT },
-                        label = { Text("Pourcentage") }, modifier = Modifier.testTag("histogram-scale-percent")
-                    )
-                }
+                Text(if (classMode == HistogramClassMode.AUTOMATIC) "${histogram.bins.size} classes · règle de Sturges" else "${histogram.bins.size} classe(s) · réglages dans Options", style = MaterialTheme.typography.bodySmall)
                 histogram.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             } else {
                 tukey.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -196,6 +182,35 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
             if (state.oneDValues.isEmpty()) {
                 Text("Aucune observation 1D dans la session courante.", style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+    if (showOptions) ModalBottomSheet(onDismissRequest = { showOptions = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Options du graphique", style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("Afficher la grille"); Switch(checked = showGrid, enabled = selectedTab == OneDGraphTab.HISTOGRAM,
+                    onCheckedChange = { showGrid = it }, modifier = Modifier.testTag("graph-option-grid").semantics { contentDescription = "Afficher la grille" })
+            }
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("Afficher les graduations"); Switch(checked = showTicks, onCheckedChange = { showTicks = it }, modifier = Modifier.testTag("graph-option-ticks").semantics { contentDescription = "Afficher les graduations" })
+            }
+            if (selectedTab == OneDGraphTab.HISTOGRAM) {
+                Text("Nombre de classes", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(classMode == HistogramClassMode.AUTOMATIC, { classMode = HistogramClassMode.AUTOMATIC }, label = { Text("Automatique") }, modifier = Modifier.testTag("histogram-mode-automatic"))
+                    FilterChip(classMode == HistogramClassMode.MANUAL, { classMode = HistogramClassMode.MANUAL }, label = { Text("Manuel") }, modifier = Modifier.testTag("histogram-mode-manual"))
+                }
+                if (classMode == HistogramClassMode.MANUAL) OutlinedTextField(
+                    value = manualClassesText, onValueChange = { if (it.isEmpty() || it.all(Char::isDigit)) manualClassesText = it },
+                    label = { Text("Nombre de classes") }, supportingText = { Text("De 1 à $classLimit classes (maximum 100).") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().testTag("histogram-manual-class-count")
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(scale == HistogramScale.COUNT, { scale = HistogramScale.COUNT }, label = { Text("Effectif") }, modifier = Modifier.testTag("histogram-scale-count"))
+                    FilterChip(scale == HistogramScale.PERCENT, { scale = HistogramScale.PERCENT }, label = { Text("Pourcentage") }, modifier = Modifier.testTag("histogram-scale-percent"))
+                }
+            }
+            TextButton(onClick = { viewport = GraphRange.autoFit(baseGraphData); selection = null }) { Text("Réinitialiser le cadrage") }
         }
     }
 }

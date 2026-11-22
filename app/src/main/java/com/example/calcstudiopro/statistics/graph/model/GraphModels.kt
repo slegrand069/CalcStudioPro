@@ -11,7 +11,9 @@ data class GraphPoint(
     val details: List<GraphPointDetail> = emptyList()
 )
 
-data class GraphPointDetail(val label: String, val value: Double, val wholeNumber: Boolean = false)
+data class GraphPointDetail(val label: String, val value: Double, val wholeNumber: Boolean = false, val percentage: Boolean = false)
+
+enum class GraphTickMode { DECIMAL, INTEGER, PERCENT }
 
 enum class GraphSeriesKind { POINTS, LINE, POINTS_AND_LINE, BARS }
 
@@ -52,7 +54,12 @@ data class GraphSnapshot(
     val xAxisLabel: String,
     val yAxisLabel: String,
     val series: List<GraphSeries>,
-    val showGrid: Boolean = true
+    val showGrid: Boolean = true,
+    val showTicks: Boolean = true,
+    val showXAxis: Boolean = true,
+    val showYAxis: Boolean = true,
+    val xTickMode: GraphTickMode = GraphTickMode.DECIMAL,
+    val yTickMode: GraphTickMode = GraphTickMode.DECIMAL
 ) {
     val finitePointCount: Int
         get() = series.sumOf { line -> line.points.count { it.x.isFinite() && it.y.isFinite() } }
