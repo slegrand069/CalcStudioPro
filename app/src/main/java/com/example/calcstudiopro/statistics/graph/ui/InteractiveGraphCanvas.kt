@@ -76,7 +76,8 @@ fun InteractiveGraphCanvas(
     val resetViewport = rememberUpdatedState(onResetViewport)
     val exactSelection = selection?.let { details ->
         "Point sélectionné : X = ${exact(details.selection.point.x)}, Y = ${exact(details.selection.point.y)}" +
-            if (details.hitGroupSize > 1) " · ${details.positionInHitGroup} sur ${details.hitGroupSize} points proches" else ""
+            details.selection.point.details.joinToString(separator = "") { " · ${it.label} = ${exact(it.value)}" } +
+            if (details.hitGroupSize > 1) " · ${details.positionInHitGroup} sur ${details.hitGroupSize} points dans la zone tactile" else ""
     }
     val observationCount = snapshot.series.filter { it.kind != com.example.calcstudiopro.statistics.graph.model.GraphSeriesKind.LINE }
         .sumOf { series -> series.points.count { it.x.isFinite() && it.y.isFinite() } }

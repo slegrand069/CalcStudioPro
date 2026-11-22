@@ -63,6 +63,7 @@ import com.example.calcstudiopro.geometry.GeometryViewModel
 import com.example.calcstudiopro.arithmetic.ArithmeticRoute
 import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
 import com.example.calcstudiopro.statistics.graph.ui.GraphDemoScreen
+import com.example.calcstudiopro.statistics.graph.ui.StatisticsGraphsRoute
 import java.math.BigDecimal
 
 private val HEX_LETTER_LABELS = mapOf(
@@ -154,7 +155,14 @@ class MainActivity : ComponentActivity() {
                             StatisticsRoute(
                                 statisticsViewModel,
                                 onOpenModeSelector = { isModeSelectorVisible = true },
-                                onOpenGraphDemo = { navController.navigate("graph-demo") }
+                                onOpenGraphs = { navController.navigate("statistics-graphs") }
+                            )
+                        }
+                        composable("statistics-graphs") {
+                            StatisticsGraphsRoute(
+                                statisticsViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenDemo = { navController.navigate("graph-demo") }
                             )
                         }
                         composable("graph-demo") {

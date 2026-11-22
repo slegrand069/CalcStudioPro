@@ -1,6 +1,7 @@
 package com.example.calcstudiopro.statistics.graph
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -13,6 +14,18 @@ import org.junit.Test
 
 class GraphDemoScreenTest {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
+
+    @Test fun statisticsChartsExposeBothViewsAndFollowTheSelectedModel() {
+        openGraphs()
+        composeRule.onNodeWithTag("statistics-graph-tab-regression").assertIsSelected()
+        composeRule.onNodeWithTag("statistics-graph-observation-count").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-graph-tab-residuals").performClick()
+        composeRule.onNodeWithTag("statistics-graph-tab-residuals").assertIsSelected()
+        composeRule.onNodeWithTag("statistics-graph-canvas").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-graph-tab-regression").performClick()
+        composeRule.onNodeWithTag("statistics-graph-tab-regression").assertIsSelected()
+        composeRule.onNodeWithTag("statistics-graph-model").assertIsDisplayed()
+    }
 
     @Test fun prototypeIsReachableCanvasAccessibleAndCanResetSelection() {
         openPrototype()
@@ -33,9 +46,16 @@ class GraphDemoScreenTest {
     }
 
     private fun openPrototype() {
-        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
-        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        openGraphs()
         composeRule.onNodeWithTag("statistics-open-graph-demo").performScrollTo().performClick()
         composeRule.onNodeWithTag("interactive-graph-canvas").assertIsDisplayed()
+    }
+
+    private fun openGraphs() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        composeRule.onNodeWithTag("statistics-dimension-2d").performClick()
+        composeRule.onNodeWithTag("statistics-open-graphs").performScrollTo().performClick()
+        composeRule.onNodeWithTag("statistics-graph-canvas").assertIsDisplayed()
     }
 }

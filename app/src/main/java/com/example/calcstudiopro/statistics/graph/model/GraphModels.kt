@@ -6,8 +6,12 @@ data class GraphPoint(
     val x: Double,
     val y: Double,
     /** False starts a new line segment and prevents connecting across a discontinuity. */
-    val connectFromPrevious: Boolean = true
+    val connectFromPrevious: Boolean = true,
+    /** Optional exact numeric values shown when this point is selected. */
+    val details: List<GraphPointDetail> = emptyList()
 )
+
+data class GraphPointDetail(val label: String, val value: Double)
 
 enum class GraphSeriesKind { POINTS, LINE, POINTS_AND_LINE }
 
