@@ -31,9 +31,14 @@ class MathExpressionEngineTest {
 
     @Test fun trigonometrySupportsRadiansAndDegrees() {
         assertValue("sin(pi/2)", 1.0)
+        assertValue("pi", PI)
+        assertValue("π", PI)
         assertValue("sin(90)", 1.0, angleMode = FunctionAngleMode.DEG)
         assertValue("asin(1)", 90.0, angleMode = FunctionAngleMode.DEG)
         assertValue("ATAN(1)", PI / 4.0)
+        assertValue("exp(x)", kotlin.math.exp(2.0), x = 2.0)
+        assertValue("asin(x)", PI / 6.0, x = 0.5)
+        assertTrue(failure("asin(x)", x = 2.0) is MathExpressionError.Domain)
     }
 
     @Test fun logarithmsAndRoots() {
@@ -62,6 +67,7 @@ class MathExpressionEngineTest {
         assertEquals(1.0 + kotlin.math.sin(1.0), value(compiled.evaluate(1.0)), 1e-9)
         assertEquals(4.0 + kotlin.math.sin(2.0), value(compiled.evaluate(2.0)), 1e-9)
         assertEquals(18.0 + kotlin.math.sin(3.0), value(compiled.evaluate(3.0, mapOf('a' to 2.0))), 1e-9)
+        assertEquals(27.0 + kotlin.math.sin(3.0), value(compiled.evaluate(3.0, mapOf('a' to 3.0))), 1e-9)
     }
 
     @Test fun reportsTypedDomainAndEvaluationErrors() {
@@ -89,6 +95,36 @@ class MathExpressionEngineTest {
         assertTrue(engine.compile("x+@") is ExpressionCompilation.Failure)
     }
 
+    @Test fun incompleteFunctionCallsReportMissingParenthesesAtEndOfSource() {
+        listOf("sin(", "sin(1;", "root(3;").forEach { source ->
+            val result = engine.compile(source) as ExpressionCompilation.Failure
+            assertTrue(result.error is MathExpressionError.MissingParenthesis)
+            assertEquals(source.length, result.error.position)
+        }
+    }
+
+    @Test fun rejectsExpressionsLongerThan4096CharactersWithATypedError() {
+        val result = engine.compile("x".repeat(4097)) as ExpressionCompilation.Failure
+        assertTrue(result.error is MathExpressionError.Syntax)
+        assertEquals(4096, result.error.position)
+    }
+
+    @Test fun deeplyNestedExpressionsReturnAControlledCompilationOrEvaluationResult() {
+        val depth = 1500
+        val source = "(".repeat(depth) + "x" + ")".repeat(depth)
+        when (val compilation = engine.compile(source)) {
+            is ExpressionCompilation.Failure -> assertTrue(
+                compilation.error is MathExpressionError.Syntax || compilation.error is MathExpressionError.MissingParenthesis
+            )
+            is ExpressionCompilation.Success -> {
+                when (val evaluation = compilation.expression.evaluate(2.0)) {
+                    is ExpressionEvaluation.Success -> assertEquals(2.0, evaluation.value, 0.0)
+                    is ExpressionEvaluation.Failure -> assertTrue(evaluation.error is MathExpressionError.Syntax)
+                }
+            }
+        }
+    }
+
     private fun assertValue(
         source: String,
         expected: Double,
@@ -110,9 +146,13 @@ class MathExpressionEngineTest {
     }
 
     private fun failure(source: String): MathExpressionError {
+        return failure(source, x = 0.0)
+    }
+
+    private fun failure(source: String, x: Double): MathExpressionError {
         return when (val compilation = engine.compile(source)) {
             is ExpressionCompilation.Failure -> compilation.error
-            is ExpressionCompilation.Success -> when (val result = compilation.expression.evaluate(0.0)) {
+            is ExpressionCompilation.Success -> when (val result = compilation.expression.evaluate(x)) {
                 is ExpressionEvaluation.Failure -> result.error
                 is ExpressionEvaluation.Success -> throw AssertionError("Expected $source to fail, got ${result.value}")
             }

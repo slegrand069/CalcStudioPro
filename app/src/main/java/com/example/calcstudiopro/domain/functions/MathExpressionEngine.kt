@@ -288,9 +288,15 @@ private class Parser(private val source: String) {
         advance()
         val args = mutableListOf<Node>()
         if (current.type != TokenType.RIGHT) {
+            if (current.type == TokenType.END) {
+                throw ParseFault(MathExpressionError.MissingParenthesis(current.position))
+            }
             args += expression()
             while (current.type == TokenType.SEMICOLON) {
                 advance()
+                if (current.type == TokenType.END) {
+                    throw ParseFault(MathExpressionError.MissingParenthesis(current.position))
+                }
                 args += expression()
             }
         }
@@ -316,7 +322,6 @@ private class Lexer(private val source: String) {
                 c.isWhitespace() -> position++
                 c.isDigit() || c == '.' || c == ',' -> readNumber()
                 c.isLetter() -> readLetterOrFunction()
-                c == 'π' -> { tokens += Token(TokenType.LETTER, "π", position); position++ }
                 else -> {
                     val type = when (c) {
                         '+' -> TokenType.PLUS
