@@ -1,5 +1,15 @@
 package com.example.calcstudiopro.functions
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
@@ -19,18 +29,11 @@ import com.example.calcstudiopro.functions.domain.FunctionStudy
 import com.example.calcstudiopro.functions.domain.StudyValidationResult
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import org.junit.Assert.assertEquals
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class FunctionStudyScreenTest {
     @get:Rule val composeRule = createComposeRule()
-
-    @Before fun resetEditorKeyboardMode() {
-        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
-            .getSharedPreferences("function_expression_editor", android.content.Context.MODE_PRIVATE)
-            .edit().clear().commit()
-    }
 
     @Test fun allSixEmptySlotsAndFutureActionsFitOnScreen() {
         composeRule.setContent {
@@ -176,15 +179,26 @@ class FunctionStudyScreenTest {
         composeRule.onNodeWithTag("editor-expression").assertTextEquals("x+2min(")
     }
 
-    @Test fun letterPaletteDisablesTAndKeyboardTogglePreservesDraft() {
+    @Test fun letterPaletteDisablesTAndMathKeyboardIsAlwaysPresent() {
         mountEditor("a+x")
         composeRule.onNodeWithTag("key-4-4").performClick()
         composeRule.onNodeWithTag("letter-t").assertIsNotEnabled()
         composeRule.onNodeWithTag("letter-x").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("editor-expression").assertTextEquals("a+xx")
-        composeRule.onNodeWithTag("editor-keyboard-toggle").performClick()
-        composeRule.onAllNodesWithTag("math-keyboard").assertCountEquals(0)
+        composeRule.onNodeWithTag("editor-expression").performClick()
+        composeRule.onNodeWithTag("math-keyboard").assertIsDisplayed()
+        composeRule.onAllNodesWithTag("editor-keyboard-toggle").assertCountEquals(0)
         composeRule.onNodeWithTag("editor-expression").assertTextEquals("a+xx")
+    }
+
+    @Test fun touchingTheExpressionKeepsSystemImeClosed() {
+        mountEditor("x+1", reportImeVisibility = true)
+        composeRule.onNodeWithTag("editor-expression").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("ime-visible").assertTextEquals("false")
+        for (row in 0..6) for (column in 0..4) {
+            composeRule.onNodeWithTag("key-$row-$column").assertIsDisplayed()
+        }
     }
 
     @Test fun validationFailureKeepsEditorAndText() {
@@ -194,33 +208,41 @@ class FunctionStudyScreenTest {
         composeRule.onNodeWithTag("editor-expression").assertTextEquals("x+")
     }
 
-    @Test fun androidInputNormalizesPointWithoutLosingTheCursor() {
-        mountEditor("")
-        composeRule.onNodeWithTag("editor-keyboard-toggle").performClick()
-        composeRule.onNodeWithTag("editor-expression").performTextInput("12.5")
-        composeRule.onNodeWithTag("editor-expression").assertTextEquals("12,5")
+    @Test fun arrowMovesCursorAndMathKeyInsertsAtTheNewPosition() {
+        mountEditor("x+1")
         composeRule.onNodeWithTag("editor-expression").performTextInputSelection(TextRange(2))
-        composeRule.onNodeWithTag("editor-expression").performTextInput("+3")
-        composeRule.onNodeWithTag("editor-expression").assertTextEquals("12+3,5")
+        composeRule.onNodeWithTag("editor-cursor-left").performClick()
+        composeRule.onNodeWithTag("key-4-0").performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("x1+1")
     }
 
     private fun mountEditor(
         expression: String,
         darkTheme: Boolean = false,
+        reportImeVisibility: Boolean = false,
         validate: (FunctionStudy, FunctionSlotId) -> StudyValidationResult? = { study, id -> study.validateFunction(id, MathExpressionEngine()) }
     ) {
         val study = FunctionStudy.newWorkingSession().withDraft(FunctionSlotId.F1, expression)
         composeRule.setContent {
             CalcStudioProTheme(darkTheme = darkTheme) {
-                FunctionExpressionEditorScreen(
-                    slot = study.slot(FunctionSlotId.F1),
-                    study = study,
-                    onDraftChange = {},
-                    onValidate = { validate(study, FunctionSlotId.F1) },
-                    onBack = {},
-                    onValidated = {}
-                )
+                Box {
+                    FunctionExpressionEditorScreen(
+                        slot = study.slot(FunctionSlotId.F1),
+                        study = study,
+                        onDraftChange = {},
+                        onValidate = { validate(study, FunctionSlotId.F1) },
+                        onBack = {},
+                        onValidated = {}
+                    )
+                    if (reportImeVisibility) ImeVisibilityProbe()
+                }
             }
         }
+    }
+
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun ImeVisibilityProbe() {
+        Text(WindowInsets.isImeVisible.toString(), modifier = Modifier.size(1.dp).testTag("ime-visible"))
     }
 }

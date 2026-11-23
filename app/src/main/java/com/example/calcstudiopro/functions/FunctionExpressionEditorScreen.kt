@@ -27,12 +27,13 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AlertDialog
@@ -45,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,14 +55,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -81,8 +86,8 @@ import com.example.calcstudiopro.functions.domain.StudyValidationResult
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Popup
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.awaitCancellation
 
-private enum class EditorKeyboardMode { MATH, ANDROID }
 private enum class PaletteKind { LETTERS, ADVANCED }
 private data class EditorSnapshot(val text: String, val selection: TextRange)
 
@@ -111,6 +116,7 @@ fun FunctionExpressionEditorRoute(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 fun FunctionExpressionEditorScreen(
     slot: FunctionSlot,
     study: FunctionStudy,
@@ -120,14 +126,7 @@ fun FunctionExpressionEditorScreen(
     onBack: () -> Unit,
     onValidated: () -> Unit
 ) {
-    val context = LocalContext.current
     val darkTheme = isSystemInDarkTheme()
-    val preferences = remember(context) {
-        context.getSharedPreferences("function_expression_editor", android.content.Context.MODE_PRIVATE)
-    }
-    var keyboardMode by remember(slot.id) {
-        mutableStateOf(if (preferences.getBoolean("android_keyboard", false)) EditorKeyboardMode.ANDROID else EditorKeyboardMode.MATH)
-    }
     val editorState = rememberTextFieldState(initialText = slot.draft)
     val editorText = editorState.text.toString()
     val editorSelection = editorState.selection
@@ -153,9 +152,9 @@ fun FunctionExpressionEditorScreen(
     LaunchedEffect(editorText) {
         if (editorText != slot.draft) onDraftChange(editorText)
     }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    LaunchedEffect(keyboardMode) {
-        if (keyboardMode == EditorKeyboardMode.MATH) keyboardController?.hide()
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.hide()
     }
 
     fun snapshot() = EditorSnapshot(editorState.text.toString(), editorState.selection)
@@ -326,9 +325,21 @@ fun FunctionExpressionEditorScreen(
                 .padding(12.dp)
                 .testTag("editor-expression-area")
         ) {
+            val selectionColors = if (darkTheme) {
+                TextSelectionColors(
+                    handleColor = Color(0xFF93C5FD),
+                    backgroundColor = Color(0xFF60A5FA).copy(alpha = 0.42f)
+                )
+            } else LocalTextSelectionColors.current
+            CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
+            InterceptPlatformTextInput(
+                interceptor = { _, _ -> awaitCancellation() }
+            ) {
             BasicTextField(
                 state = editorState,
-                modifier = Modifier.fillMaxSize().focusRequester(focusRequester).testTag("editor-expression"),
+                modifier = Modifier.fillMaxSize().focusRequester(focusRequester)
+                    .onFocusChanged { if (it.isFocused) keyboardController?.hide() }
+                    .testTag("editor-expression"),
                 inputTransformation = InputTransformation {
                     val previous = originalText.toString()
                     val previousSelection = originalSelection
@@ -352,11 +363,14 @@ fun FunctionExpressionEditorScreen(
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.None,
                     imeAction = ImeAction.Default,
-                    showKeyboardOnFocus = keyboardMode == EditorKeyboardMode.ANDROID,
+                    showKeyboardOnFocus = false,
                     autoCorrectEnabled = false
                 ),
+                cursorBrush = SolidColor(if (darkTheme) Color(0xFF93C5FD) else MaterialTheme.colorScheme.primary),
                 lineLimits = TextFieldLineLimits.MultiLine()
             )
+            }
+            }
             if (editorText.isEmpty()) {
                 Text("Expression", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 22.sp, modifier = Modifier.align(Alignment.TopStart))
             }
@@ -371,7 +385,7 @@ fun FunctionExpressionEditorScreen(
                         val target = position.coerceIn(0, editorText.length)
                         editorState.edit { selection = TextRange(target) }
                         focusRequester.requestFocus()
-                        if (keyboardMode == EditorKeyboardMode.ANDROID) keyboardController?.show()
+                        keyboardController?.hide()
                     }
                 }
             }
@@ -406,21 +420,9 @@ fun FunctionExpressionEditorScreen(
             }
             CursorMoveButton("‹", -1, "editor-cursor-left", ::moveCursor)
             CursorMoveButton("›", 1, "editor-cursor-right", ::moveCursor)
-            IconButton(onClick = {
-                keyboardMode = if (keyboardMode == EditorKeyboardMode.MATH) EditorKeyboardMode.ANDROID else EditorKeyboardMode.MATH
-                palette = null
-                preferences.edit().putBoolean("android_keyboard", keyboardMode == EditorKeyboardMode.ANDROID).apply()
-                if (keyboardMode == EditorKeyboardMode.MATH) keyboardController?.hide() else {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                }
-            }, modifier = Modifier.size(44.dp).testTag("editor-keyboard-toggle")) {
-                Icon(Icons.Default.Keyboard, contentDescription = if (keyboardMode == EditorKeyboardMode.MATH) "Clavier Android" else "Clavier mathématique", tint = MaterialTheme.colorScheme.onSurface)
-            }
         }
 
-        if (keyboardMode == EditorKeyboardMode.MATH) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().testTag("math-keyboard")) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth().testTag("math-keyboard")) {
                 rows.forEachIndexed { rowIndex, row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         row.forEachIndexed { columnIndex, key ->
@@ -441,7 +443,6 @@ fun FunctionExpressionEditorScreen(
                         }
                     }
                 }
-            }
         }
     }
     }
