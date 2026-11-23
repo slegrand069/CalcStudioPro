@@ -24,12 +24,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -39,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.example.calcstudiopro.statistics.StatisticsEngine
 import com.example.calcstudiopro.statistics.StatisticsViewModel
 import com.example.calcstudiopro.statistics.StatisticsState
@@ -74,6 +77,7 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
     var showGrid by remember { mutableStateOf(true) }
     var showTicks by remember { mutableStateOf(true) }
     var showOptions by remember { mutableStateOf(false) }
+    var showFullscreen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.oneDValues, state.oneDSourceSeriesId, state.oneDDirty) {
         classMode = HistogramClassMode.AUTOMATIC
         manualClassesText = "5"
@@ -110,6 +114,9 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFullscreen = true }, modifier = Modifier.testTag("statistics-1d-graph-fullscreen")) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = "Agrandir le graphique")
+                    }
                     IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("statistics-1d-graph-options")) {
                         Icon(Icons.Default.Tune, contentDescription = "Options du graphique")
                     }
@@ -212,6 +219,32 @@ fun Statistics1DGraphsScreen(state: StatisticsState, onBack: () -> Unit, modifie
             }
             TextButton(onClick = { viewport = GraphRange.autoFit(baseGraphData); selection = null }) { Text("Réinitialiser le cadrage") }
         }
+    }
+    if (showFullscreen) GraphFullscreenDialog(
+        title = if (selectedTab == OneDGraphTab.HISTOGRAM) "Histogramme" else "Boîte à moustaches",
+        selection = selection,
+        onClose = { showFullscreen = false }
+    ) { chartModifier ->
+        InteractiveGraphCanvas(
+            snapshot = graphData,
+            viewport = viewport,
+            selection = selection,
+            onViewportChange = { viewport = it },
+            onSelectionChange = { selection = it },
+            onCycleSelection = {
+                val targets = selectablePoints(graphData)
+                if (targets.isNotEmpty()) {
+                    val current = targets.indexOfFirst { it.first.id == selection?.selection?.point?.id }
+                    val next = targets[(current + 1).mod(targets.size)]
+                    selection = GraphSelectionDetails(GraphSelection(next.second, next.first))
+                }
+            },
+            onResetViewport = { viewport = GraphRange.autoFit(graphData); selection = null },
+            modifier = chartModifier,
+            testTag = "statistics-1d-graph-fullscreen-canvas",
+            canvasHeight = Dp.Unspecified,
+            showDetailsPanel = false
+        )
     }
 }
 

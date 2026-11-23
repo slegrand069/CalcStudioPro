@@ -1,6 +1,7 @@
 package com.example.calcstudiopro
 
 import android.os.Bundle
+import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -79,6 +80,11 @@ private val HEX_LETTER_LABELS = mapOf(
 data class CalculatorInputRequest(val id: Long, val expression: String)
 
 class MainActivity : ComponentActivity() {
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The graph explorer changes orientation in-place; Compose receives the new configuration.
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -163,8 +169,7 @@ class MainActivity : ComponentActivity() {
                         composable("statistics-graphs") {
                             StatisticsGraphsRoute(
                                 statisticsViewModel,
-                                onBack = { navController.popBackStack() },
-                                onOpenDemo = { navController.navigate("graph-demo") }
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable("statistics-1d-graphs") {

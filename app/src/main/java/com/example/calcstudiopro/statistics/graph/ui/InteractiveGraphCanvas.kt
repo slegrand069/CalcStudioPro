@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import com.example.calcstudiopro.statistics.graph.domain.GraphHitTesting
 import com.example.calcstudiopro.statistics.graph.domain.GraphNumberFormatter
 import com.example.calcstudiopro.statistics.graph.domain.GraphTransform
@@ -58,7 +60,9 @@ fun InteractiveGraphCanvas(
     onCycleSelection: () -> Unit,
     onResetViewport: () -> Unit,
     modifier: Modifier = Modifier,
-    testTag: String = "interactive-graph-canvas"
+    testTag: String = "interactive-graph-canvas",
+    canvasHeight: Dp = 300.dp,
+    showDetailsPanel: Boolean = true
 ) {
     var tapCycle by remember { mutableStateOf<TapCycle?>(null) }
     val density = LocalDensity.current.density
@@ -87,7 +91,7 @@ fun InteractiveGraphCanvas(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Surface(color = colors.surfaceVariant, shape = MaterialTheme.shapes.small) {
             Canvas(
-                modifier = Modifier.fillMaxWidth().height(300.dp)
+                modifier = (if (canvasHeight == Dp.Unspecified) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(canvasHeight))
                     .testTag(testTag)
                     .semantics {
                         contentDescription = "${snapshot.title}. Graphique interactif. Pincez pour zoomer, glissez pour déplacer, touchez un élément pour afficher ses valeurs."
@@ -136,9 +140,9 @@ fun InteractiveGraphCanvas(
                 drawGraph(snapshot, viewport, selection?.selection, renderStyle, textMeasurer)
             }
         }
-        if (selection == null) Text("Touchez un élément pour afficher ses détails.", Modifier.fillMaxWidth().testTag("graph-selected-coordinates"),
+        if (showDetailsPanel && selection == null) Text("Touchez un élément pour afficher ses détails.", Modifier.fillMaxWidth().testTag("graph-selected-coordinates"),
             style = MaterialTheme.typography.bodyMedium, fontSize = 14.sp)
-        else Surface(color = colors.surfaceContainerLow, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("graph-selected-coordinates").semantics(mergeDescendants = true) {}) {
+        else if (showDetailsPanel && selection != null) Surface(color = colors.surfaceContainerLow, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth().testTag("graph-selected-coordinates").semantics(mergeDescendants = true) {}) {
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(exactSelection?.takeIf(String::isNotBlank) ?: "Élément sélectionné", style = MaterialTheme.typography.titleSmall)
                 if (hasSemanticDetails) {

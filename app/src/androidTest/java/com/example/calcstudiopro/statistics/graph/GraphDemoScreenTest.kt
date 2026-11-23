@@ -2,15 +2,17 @@ package com.example.calcstudiopro.statistics.graph
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.espresso.Espresso.pressBack
+import android.content.res.Configuration
 import com.example.calcstudiopro.MainActivity
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 
 class GraphDemoScreenTest {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
@@ -48,28 +50,39 @@ class GraphDemoScreenTest {
         composeRule.onNodeWithTag("histogram-scale-percent").performScrollTo().performClick()
     }
 
-    @Test fun prototypeIsReachableCanvasAccessibleAndCanResetSelection() {
-        openPrototype()
-        composeRule.onNodeWithTag("interactive-graph-canvas").assertIsDisplayed()
-        composeRule.onNodeWithTag("graph-demo-next-point").performClick()
-        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("X =", substring = true)
-        composeRule.onNodeWithTag("graph-demo-reset").performClick()
-        composeRule.onNodeWithTag("graph-demo-status").assertTextContains("Cadrage réinitialisé", substring = true)
-        composeRule.onNodeWithTag("graph-selected-coordinates").assertTextContains("Touchez un élément", substring = true)
-    }
-
-    @Test fun tenThousandObservationModeCanBeEnabledAndHasAccessibleCanvas() {
-        openPrototype()
-        composeRule.onNodeWithTag("graph-demo-large-data-toggle").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("10 000 observations").assertIsDisplayed()
-        composeRule.onNodeWithTag("interactive-graph-canvas").assertIsDisplayed()
-    }
-
-    private fun openPrototype() {
+    @Test fun fullscreenCanRotateTemporarilyAndReturnsToTheActiveChart() {
         openGraphs()
-        composeRule.onNodeWithTag("statistics-open-graph-demo").performScrollTo().performClick()
-        composeRule.onNodeWithTag("interactive-graph-canvas").assertIsDisplayed()
+        composeRule.onNodeWithTag("statistics-graph-tab-residuals").performClick()
+        composeRule.onNodeWithTag("statistics-graph-fullscreen").performClick()
+        composeRule.onNodeWithTag("graph-fullscreen-chart").assertIsDisplayed()
+        composeRule.onNodeWithTag("graph-fullscreen-orientation").performClick()
+        composeRule.waitUntil(5_000) { composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+        assertEquals(Configuration.ORIENTATION_LANDSCAPE, composeRule.activity.resources.configuration.orientation)
+        composeRule.onNodeWithTag("graph-fullscreen-orientation").performClick()
+        composeRule.waitUntil(5_000) { composeRule.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
+        assertEquals(Configuration.ORIENTATION_PORTRAIT, composeRule.activity.resources.configuration.orientation)
+        composeRule.onNodeWithTag("graph-fullscreen-close").performClick()
+        composeRule.onNodeWithTag("statistics-graph-tab-residuals").assertIsSelected()
+    }
+
+    @Test fun oneDFullscreenShowsTheSelectedChartAndReturnsToItsTab() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-statistics").performClick()
+        composeRule.onNodeWithTag("statistics-dimension-1d").performClick()
+        composeRule.onNodeWithTag("statistics-open-1d-graphs").performScrollTo().performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-fullscreen").performClick()
+        composeRule.onNodeWithTag("graph-fullscreen-chart").assertIsDisplayed()
+        composeRule.onNodeWithTag("graph-fullscreen-close").performClick()
+        composeRule.onNodeWithTag("statistics-1d-graph-tab-tukey").assertIsSelected()
+    }
+
+    @Test fun androidBackLeavesFullscreenAndReturnsToTheExplorer() {
+        openGraphs()
+        composeRule.onNodeWithTag("statistics-graph-fullscreen").performClick()
+        composeRule.onNodeWithTag("graph-fullscreen-chart").assertIsDisplayed()
+        pressBack()
+        composeRule.onNodeWithTag("statistics-graph-canvas").assertIsDisplayed()
     }
 
     private fun openGraphs() {

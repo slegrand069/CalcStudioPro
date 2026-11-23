@@ -17,6 +17,7 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -28,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -36,6 +38,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.example.calcstudiopro.statistics.Statistics2DEngine
 import com.example.calcstudiopro.statistics.StatisticsState
 import com.example.calcstudiopro.statistics.StatisticsViewModel
@@ -54,11 +57,10 @@ private enum class StatisticsGraphTab(val title: String) {
 @Composable
 fun StatisticsGraphsRoute(
     viewModel: StatisticsViewModel,
-    onBack: () -> Unit,
-    onOpenDemo: () -> Unit
+    onBack: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
-    StatisticsGraphsScreen(state, onBack, onOpenDemo)
+    StatisticsGraphsScreen(state, onBack)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +68,6 @@ fun StatisticsGraphsRoute(
 fun StatisticsGraphsScreen(
     state: StatisticsState,
     onBack: () -> Unit,
-    onOpenDemo: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(StatisticsGraphTab.REGRESSION) }
@@ -74,6 +75,7 @@ fun StatisticsGraphsScreen(
     var showTicks by remember { mutableStateOf(true) }
     var showRegression by remember { mutableStateOf(true) }
     var showOptions by remember { mutableStateOf(false) }
+    var showFullscreen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.twoDPoints, state.twoDSourceSeriesId, state.twoDDirty, state.model) {
         showGrid = true
         showTicks = true
@@ -114,6 +116,9 @@ fun StatisticsGraphsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFullscreen = true }, modifier = Modifier.testTag("statistics-graph-fullscreen")) {
+                        Icon(Icons.Default.Fullscreen, contentDescription = "Agrandir le graphique")
+                    }
                     IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("statistics-graph-options")) {
                         Icon(Icons.Default.Tune, contentDescription = "Options du graphique")
                     }
@@ -179,9 +184,6 @@ fun StatisticsGraphsScreen(
             if (state.twoDPoints.isEmpty()) {
                 Text("Aucun couple X/Y dans la session courante.", style = MaterialTheme.typography.bodySmall)
             }
-            TextButton(onClick = onOpenDemo, modifier = Modifier.testTag("statistics-open-graph-demo")) {
-                Text("Démo moteur Canvas · lot 5.1")
-            }
         }
     }
     if (showOptions) ModalBottomSheet(onDismissRequest = { showOptions = false }) {
@@ -198,6 +200,33 @@ fun StatisticsGraphsScreen(
             }
             TextButton(onClick = { viewport = GraphRange.autoFit(displaySnapshot); selection = null }) { Text("Réinitialiser le cadrage") }
         }
+    }
+    if (showFullscreen) GraphFullscreenDialog(
+        title = if (selectedTab == StatisticsGraphTab.REGRESSION) "Nuage + régression" else "Résidus",
+        selection = selection,
+        onClose = { showFullscreen = false }
+    ) { chartModifier ->
+        InteractiveGraphCanvas(
+            snapshot = displaySnapshot,
+            viewport = viewport,
+            selection = selection,
+            onViewportChange = { viewport = it },
+            onSelectionChange = { selection = it },
+            onCycleSelection = {
+                val pointSeries = graphData.snapshot.series.firstOrNull { it.kind != GraphSeriesKind.LINE }
+                val points = pointSeries?.points.orEmpty()
+                if (points.isNotEmpty()) {
+                    val currentIndex = points.indexOfFirst { it.id == selection?.selection?.point?.id }
+                    val next = points[(currentIndex + 1).mod(points.size)]
+                    selection = GraphSelectionDetails(GraphSelection(pointSeries!!.id, next))
+                }
+            },
+            onResetViewport = { viewport = GraphRange.autoFit(displaySnapshot); selection = null },
+            modifier = chartModifier,
+            testTag = "statistics-graph-fullscreen-canvas",
+            canvasHeight = Dp.Unspecified,
+            showDetailsPanel = false
+        )
     }
 }
 
