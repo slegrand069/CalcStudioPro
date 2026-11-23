@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextInputSelection
@@ -140,6 +141,18 @@ class FunctionStudyScreenTest {
         composeRule.onNodeWithTag("editor-expression-area").assertIsDisplayed()
     }
 
+    @Test fun darkEditorKeepsEveryMathKeyInsideTheVisibleScreen() {
+        mountEditor("x+1", darkTheme = true)
+        composeRule.waitForIdle()
+        val screenBottom = composeRule.onRoot().fetchSemanticsNode().boundsInRoot.bottom
+        for (row in 0..6) for (column in 0..4) {
+            val bounds = composeRule.onNodeWithTag("key-$row-$column").fetchSemanticsNode().boundsInRoot
+            assert(bounds.top >= 0f && bounds.bottom <= screenBottom) { "Key $row/$column is outside screen: $bounds / $screenBottom" }
+        }
+        composeRule.onNodeWithTag("editor-back").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-expression-area").assertIsDisplayed()
+    }
+
     @Test fun insertionReplacesSelectionAndShiftSelectsInverseFunctions() {
         mountEditor("x+1")
         composeRule.onNodeWithTag("editor-expression").performTextInputSelection(TextRange(0, 1))
@@ -193,11 +206,12 @@ class FunctionStudyScreenTest {
 
     private fun mountEditor(
         expression: String,
+        darkTheme: Boolean = false,
         validate: (FunctionStudy, FunctionSlotId) -> StudyValidationResult? = { study, id -> study.validateFunction(id, MathExpressionEngine()) }
     ) {
         val study = FunctionStudy.newWorkingSession().withDraft(FunctionSlotId.F1, expression)
         composeRule.setContent {
-            CalcStudioProTheme {
+            CalcStudioProTheme(darkTheme = darkTheme) {
                 FunctionExpressionEditorScreen(
                     slot = study.slot(FunctionSlotId.F1),
                     study = study,

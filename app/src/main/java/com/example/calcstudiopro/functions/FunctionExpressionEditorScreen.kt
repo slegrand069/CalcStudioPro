@@ -9,15 +9,21 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -114,6 +121,7 @@ fun FunctionExpressionEditorScreen(
     onValidated: () -> Unit
 ) {
     val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
     val preferences = remember(context) {
         context.getSharedPreferences("function_expression_editor", android.content.Context.MODE_PRIVATE)
     }
@@ -285,16 +293,23 @@ fun FunctionExpressionEditorScreen(
         listOf("AC", "x", "e", ";", "Valider")
     )
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
     ) {
-        Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
+        val keyHeight = ((maxHeight - 168.dp) / 7).coerceIn(40.dp, 52.dp)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+        Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.size(40.dp).testTag("editor-back")) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour sans valider")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour sans valider", tint = MaterialTheme.colorScheme.onSurface)
             }
             Column(Modifier.weight(1f)) {
-                Text("Édition de ${slot.id.editorLabel}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Édition de ${slot.id.editorLabel}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 if (slot.isDraftModified) Text("Brouillon non validé", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
             }
             Text(study.angleMode.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -303,9 +318,10 @@ fun FunctionExpressionEditorScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f, fill = false)
+                .heightIn(max = 240.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+                .background(if (darkTheme) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
                 .border(BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)), RoundedCornerShape(12.dp))
                 .padding(12.dp)
                 .testTag("editor-expression-area")
@@ -361,9 +377,10 @@ fun FunctionExpressionEditorScreen(
             }
         }
         saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("editor-save-error")) }
+        Spacer(Modifier.weight(1f))
 
         Row(
-            modifier = Modifier.fillMaxWidth().height(44.dp),
+            modifier = Modifier.fillMaxWidth().height(40.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -375,7 +392,7 @@ fun FunctionExpressionEditorScreen(
                     publish(target, recordUndo = false)
                 }
             }, enabled = undoStack.isNotEmpty(), modifier = Modifier.size(44.dp).testTag("editor-undo")) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Annuler")
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Annuler", tint = MaterialTheme.colorScheme.onSurface)
             }
             IconButton(onClick = {
                 if (redoStack.isNotEmpty()) {
@@ -385,7 +402,7 @@ fun FunctionExpressionEditorScreen(
                     publish(target, recordUndo = false)
                 }
             }, enabled = redoStack.isNotEmpty(), modifier = Modifier.size(44.dp).testTag("editor-redo")) {
-                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Rétablir")
+                Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Rétablir", tint = MaterialTheme.colorScheme.onSurface)
             }
             CursorMoveButton("‹", -1, "editor-cursor-left", ::moveCursor)
             CursorMoveButton("›", 1, "editor-cursor-right", ::moveCursor)
@@ -398,7 +415,7 @@ fun FunctionExpressionEditorScreen(
                     keyboardController?.show()
                 }
             }, modifier = Modifier.size(44.dp).testTag("editor-keyboard-toggle")) {
-                Icon(Icons.Default.Keyboard, contentDescription = if (keyboardMode == EditorKeyboardMode.MATH) "Clavier Android" else "Clavier mathématique")
+                Icon(Icons.Default.Keyboard, contentDescription = if (keyboardMode == EditorKeyboardMode.MATH) "Clavier Android" else "Clavier mathématique", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
 
@@ -410,7 +427,7 @@ fun FunctionExpressionEditorScreen(
                             KeyButton(
                                 label = key,
                                 selected = key == "Shift" && shiftEnabled,
-                                modifier = Modifier.weight(1f).height(48.dp).testTag("key-$rowIndex-$columnIndex"),
+                                modifier = Modifier.weight(1f).height(keyHeight).testTag("key-$rowIndex-$columnIndex"),
                                 onClick = {
                                     if (key == "Valider") {
                                         when (val result = onValidate()) {
@@ -426,6 +443,7 @@ fun FunctionExpressionEditorScreen(
                 }
             }
         }
+    }
     }
 
     if (palette != null) {
@@ -473,14 +491,19 @@ private fun KeyButton(label: String, selected: Boolean, modifier: Modifier, onCl
     val fill = when (label) {
         "Shift" -> Color(0xFFFACC15)
         "⌫" -> Color(0xFFFFB74D)
-        "AC" -> Color(0xFFDC2626)
-        "Valider" -> Color(0xFF059669)
+        "AC" -> Color(0xFFB91C1C)
+        "Valider" -> Color(0xFF047857)
         else -> if (selected) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant
     }
     Surface(
         modifier = modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick),
         color = fill,
-        contentColor = if (label in setOf("AC", "Valider")) Color.White else Color(0xFF171717),
+        contentColor = when (label) {
+            "AC", "Valider" -> Color.White
+            "Shift" -> Color(0xFF422006)
+            "⌫" -> Color(0xFF431407)
+            else -> MaterialTheme.colorScheme.onSurface
+        },
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary) else null,
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -590,6 +613,7 @@ private fun CursorMoveButton(label: String, direction: Int, tag: String, onMove:
             .testTag(tag),
         textAlign = TextAlign.Center,
         fontSize = 23.sp,
+        color = MaterialTheme.colorScheme.onSurface,
         lineHeight = 44.sp
     )
 }
