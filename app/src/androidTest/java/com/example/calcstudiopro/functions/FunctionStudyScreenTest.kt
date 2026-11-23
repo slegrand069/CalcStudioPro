@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -19,6 +20,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.text.TextRange
@@ -199,6 +201,21 @@ class FunctionStudyScreenTest {
         for (row in 0..6) for (column in 0..4) {
             composeRule.onNodeWithTag("key-$row-$column").assertIsDisplayed()
         }
+    }
+
+    @Test fun selectedTextCanBeCopiedAndPastedWithoutSystemIme() {
+        mountEditor("x+1", reportImeVisibility = true)
+        val field = composeRule.onNodeWithTag("editor-expression")
+        field.performTextInputSelection(TextRange(0, 1))
+        field.performSemanticsAction(SemanticsActions.CopyText) { copy ->
+            assert(copy()) { "Copy action was not available" }
+        }
+        field.performTextInputSelection(TextRange(3))
+        field.performSemanticsAction(SemanticsActions.PasteText) { paste ->
+            assert(paste()) { "Paste action was not available" }
+        }
+        field.assertTextEquals("x+1x")
+        composeRule.onNodeWithTag("ime-visible").assertTextEquals("false")
     }
 
     @Test fun validationFailureKeepsEditorAndText() {
