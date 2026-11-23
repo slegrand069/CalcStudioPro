@@ -24,12 +24,28 @@ enum class FunctionColor(val argb: Long) {
     GREEN(0xFF059669),
     AMBER(0xFFD97706),
     VIOLET(0xFF7C3AED),
-    CYAN(0xFF0891B2)
+    CYAN(0xFF0891B2),
+    SUN_YELLOW(0xFFFACC15),
+    VIVID_ORANGE(0xFFFF6B00),
+    NAVY(0xFF172554),
+    RASPBERRY(0xFFE11D74),
+    LIME(0xFF84CC16),
+    SLATE(0xFF475569)
 }
 
 /** Six reusable, distinct defaults. A slot may select any color, including another slot's color. */
 object FunctionColorPalette {
-    val defaults: List<FunctionColor> = Collections.unmodifiableList(FunctionColor.entries.toList())
+    val colors: List<FunctionColor> = Collections.unmodifiableList(FunctionColor.entries.toList())
+    val defaults: List<FunctionColor> = Collections.unmodifiableList(
+        listOf(
+            FunctionColor.BLUE,
+            FunctionColor.RED,
+            FunctionColor.GREEN,
+            FunctionColor.AMBER,
+            FunctionColor.VIOLET,
+            FunctionColor.CYAN
+        )
+    )
 
     fun defaultFor(id: FunctionSlotId): FunctionColor = defaults[id.number - 1]
 }

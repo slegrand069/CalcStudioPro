@@ -59,6 +59,33 @@ class FunctionStudyStoreTest {
         assertEquals(8.0, value(loaded.evaluate(FunctionSlotId.F2, 2.0)), 0.0)
     }
 
+    @Test fun newlyAddedPaletteColorRoundTripsAndLegacyCspfColorNamesRemainReadable() {
+        val directory = temporaryFolder.newFolder("palette-compatibility").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        var study = FunctionStudy.newWorkingSession(FunctionStudyId("palette-compat"))
+            .withColor(FunctionSlotId.F1, FunctionColor.NAVY)
+        success(store.saveWorkingSession(study))
+        val savedRevision = success(store.loadWorkingSession())!!.also {
+            assertEquals(FunctionColor.NAVY, it.slot(FunctionSlotId.F1).color)
+        }.revision()
+
+        // CSPF v1 stores enum names; all pre-existing names and ARGB values stay unchanged.
+        val legacyColors = listOf(
+            FunctionColor.BLUE, FunctionColor.RED, FunctionColor.GREEN,
+            FunctionColor.AMBER, FunctionColor.VIOLET, FunctionColor.CYAN
+        )
+        legacyColors.forEachIndexed { index, color ->
+            study = study.withColor(FunctionSlotId.ordered[index], color)
+        }
+        success(store.saveWorkingSession(study, savedRevision))
+        val loaded = success(store.loadWorkingSession())!!
+        assertEquals(legacyColors, loaded.slots.map { it.color })
+        assertEquals(
+            listOf(0xFF2563EB, 0xFFDC2626, 0xFF059669, 0xFFD97706, 0xFF7C3AED, 0xFF0891B2),
+            legacyColors.map { it.argb }
+        )
+    }
+
     @Test fun absentWorkingSessionReturnsAUsableDefaultWithoutPersistingIt() {
         val directory = temporaryFolder.newFolder("absent-session").toPath()
         val store = FunctionStudyStore(directory, engine)

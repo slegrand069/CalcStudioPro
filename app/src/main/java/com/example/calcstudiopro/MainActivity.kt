@@ -63,6 +63,9 @@ import com.example.calcstudiopro.geometry.GeometryRoute
 import com.example.calcstudiopro.geometry.GeometryViewModel
 import com.example.calcstudiopro.arithmetic.ArithmeticRoute
 import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
+import com.example.calcstudiopro.functions.FunctionStudyRoute
+import com.example.calcstudiopro.functions.FunctionStudyViewModel
+import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.statistics.graph.ui.GraphDemoScreen
 import com.example.calcstudiopro.statistics.graph.ui.StatisticsGraphsRoute
 import com.example.calcstudiopro.statistics.graph.ui.Statistics1DGraphsRoute
@@ -113,6 +116,12 @@ class MainActivity : ComponentActivity() {
                 val arithmeticViewModel: ArithmeticViewModel = viewModel(factory = remember { ArithmeticViewModel.Factory(historyRepository) })
                 val geometryViewModel: GeometryViewModel = viewModel(
                     factory = remember { GeometryViewModel.Factory(historyRepository) }
+                )
+                val functionStudyStore = remember {
+                    FunctionStudyStore(applicationContext.filesDir.toPath().resolve("function-studies"))
+                }
+                val functionStudyViewModel: FunctionStudyViewModel = viewModel(
+                    factory = remember { FunctionStudyViewModel.Factory(functionStudyStore) }
                 )
                 val appSettings by settingsViewModel.state.collectAsState()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
@@ -181,6 +190,9 @@ class MainActivity : ComponentActivity() {
                         composable("arithmetic") { ArithmeticRoute(arithmeticViewModel, onOpenModeSelector = { isModeSelectorVisible = true }) }
                         composable("geometry") {
                             GeometryRoute(geometryViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
+                        }
+                        composable("functions") {
+                            FunctionStudyRoute(functionStudyViewModel, onBack = { navController.popBackStack() })
                         }
                     }
 

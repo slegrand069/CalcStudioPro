@@ -25,6 +25,14 @@ class FunctionStudyTest {
 
     @Test fun paletteDefaultsAreDistinctAndDuplicateSlotColorsAreAllowed() {
         val study = FunctionStudy.newWorkingSession()
+        assertEquals(12, FunctionColorPalette.colors.size)
+        assertEquals(
+            listOf(
+                FunctionColor.BLUE, FunctionColor.RED, FunctionColor.GREEN,
+                FunctionColor.AMBER, FunctionColor.VIOLET, FunctionColor.CYAN
+            ),
+            FunctionColorPalette.defaults
+        )
         assertEquals(6, study.slots.map { it.color }.toSet().size)
         assertEquals(FunctionColorPalette.defaults, study.slots.map { it.color })
         val duplicate = study.withColor(FunctionSlotId.F2, study.slot(FunctionSlotId.F1).color)
