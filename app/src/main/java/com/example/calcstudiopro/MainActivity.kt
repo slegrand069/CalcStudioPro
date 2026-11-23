@@ -52,6 +52,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.example.calcstudiopro.navigation.availableModes
 import com.example.calcstudiopro.converter.ConverterRoute
 import com.example.calcstudiopro.converter.ConverterViewModel
@@ -65,6 +67,8 @@ import com.example.calcstudiopro.arithmetic.ArithmeticRoute
 import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
 import com.example.calcstudiopro.functions.FunctionStudyRoute
 import com.example.calcstudiopro.functions.FunctionStudyViewModel
+import com.example.calcstudiopro.functions.FunctionExpressionEditorRoute
+import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.statistics.graph.ui.GraphDemoScreen
 import com.example.calcstudiopro.statistics.graph.ui.StatisticsGraphsRoute
@@ -192,7 +196,25 @@ class MainActivity : ComponentActivity() {
                             GeometryRoute(geometryViewModel, onOpenModeSelector = { isModeSelectorVisible = true })
                         }
                         composable("functions") {
-                            FunctionStudyRoute(functionStudyViewModel, onBack = { navController.popBackStack() })
+                            FunctionStudyRoute(
+                                functionStudyViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenEditor = { slotId -> navController.navigate("functions/edit/${slotId.code}") }
+                            )
+                        }
+                        composable(
+                            route = "functions/edit/{slotId}",
+                            arguments = listOf(navArgument("slotId") { type = NavType.StringType })
+                        ) { entry ->
+                            val slotId = FunctionSlotId.entries.firstOrNull { it.code == entry.arguments?.getString("slotId") }
+                            if (slotId != null) {
+                                FunctionExpressionEditorRoute(
+                                    viewModel = functionStudyViewModel,
+                                    slotId = slotId,
+                                    onBack = { navController.popBackStack() },
+                                    onValidated = { navController.popBackStack() }
+                                )
+                            }
                         }
                     }
 

@@ -3,6 +3,7 @@ package com.example.calcstudiopro.functions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.example.calcstudiopro.MainActivity
 import org.junit.Rule
@@ -18,5 +19,13 @@ class FunctionStudyNavigationTest {
         (1..6).forEach { index ->
             composeRule.onNodeWithTag("function-slot-f$index").assertIsDisplayed()
         }
+    }
+
+    @Test fun tappingAFunctionRowOpensItsFullScreenEditor() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-functions").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("function-slot-f2").performClick()
+        composeRule.onNodeWithTag("editor-expression-area").assertIsDisplayed()
+        composeRule.onNodeWithText("Édition de f₂(x)").assertIsDisplayed()
     }
 }

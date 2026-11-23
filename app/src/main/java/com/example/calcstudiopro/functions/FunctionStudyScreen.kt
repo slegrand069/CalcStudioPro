@@ -53,13 +53,18 @@ import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionStudy
 
 @Composable
-fun FunctionStudyRoute(viewModel: FunctionStudyViewModel, onBack: () -> Unit) {
+fun FunctionStudyRoute(
+    viewModel: FunctionStudyViewModel,
+    onBack: () -> Unit,
+    onOpenEditor: (FunctionSlotId) -> Unit = {}
+) {
     val state by viewModel.state.collectAsState()
     FunctionStudyScreen(
         state = state,
         onBack = onBack,
         onChooseColor = viewModel::chooseColor,
-        onToggleVisibility = viewModel::toggleVisibility
+        onToggleVisibility = viewModel::toggleVisibility,
+        onOpenEditor = onOpenEditor
     )
 }
 

@@ -2,6 +2,7 @@ package com.example.calcstudiopro.functions
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.example.calcstudiopro.domain.functions.MathExpressionEngine
 import com.example.calcstudiopro.functions.domain.FunctionColor
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionStudy
@@ -9,6 +10,7 @@ import com.example.calcstudiopro.functions.domain.FunctionStudyRevision
 import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.functions.persistence.StudyStoreError
 import com.example.calcstudiopro.functions.persistence.StudyStoreResult
+import com.example.calcstudiopro.functions.domain.StudyValidationResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -19,7 +21,10 @@ data class FunctionStudyUiState(
 )
 
 /** A1 state holder. Only the working session is autosaved; named studies are untouched here. */
-class FunctionStudyViewModel(private val store: FunctionStudyStore) : ViewModel() {
+class FunctionStudyViewModel(
+    private val store: FunctionStudyStore,
+    private val engine: MathExpressionEngine = MathExpressionEngine()
+) : ViewModel() {
     private var savedRevision: FunctionStudyRevision? = null
 
     private val mutableState = MutableStateFlow(loadInitialState())
@@ -45,6 +50,21 @@ class FunctionStudyViewModel(private val store: FunctionStudyStore) : ViewModel(
         }
     }
 
+    fun updateDraft(slotId: FunctionSlotId, draft: String) {
+        update { it.withDraft(slotId, draft) }
+    }
+
+    fun validateDraft(slotId: FunctionSlotId): StudyValidationResult? {
+        val study = mutableState.value.study ?: return null
+        return when (val result = study.validateFunction(slotId, engine)) {
+            is StudyValidationResult.Accepted -> {
+                saveStudy(result.study)
+                result
+            }
+            is StudyValidationResult.Rejected -> result
+        }
+    }
+
     private inline fun update(change: (FunctionStudy) -> FunctionStudy) {
         val current = mutableState.value
         val study = current.study ?: return
@@ -52,6 +72,12 @@ class FunctionStudyViewModel(private val store: FunctionStudyStore) : ViewModel(
         val revision = updated.revision()
         if (revision == study.revision()) return
 
+        saveStudy(updated)
+    }
+
+    private fun saveStudy(updated: FunctionStudy) {
+        val current = mutableState.value
+        val revision = updated.revision()
         mutableState.value = current.copy(study = updated, saveError = null)
         when (val result = store.saveWorkingSession(updated, savedRevision)) {
             is StudyStoreResult.Success -> {

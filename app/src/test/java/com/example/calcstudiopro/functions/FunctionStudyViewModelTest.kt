@@ -5,6 +5,7 @@ import com.example.calcstudiopro.functions.domain.FunctionColor
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionStudy
 import com.example.calcstudiopro.functions.domain.FunctionStudyId
+import com.example.calcstudiopro.functions.domain.StudyValidationResult
 import com.example.calcstudiopro.functions.persistence.AtomicFileWriter
 import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import org.junit.Assert.assertEquals
@@ -59,5 +60,40 @@ class FunctionStudyViewModelTest {
         assertEquals(false, viewModel.state.value.study!!.slot(FunctionSlotId.F1).isVisible)
         assertNotNull(viewModel.state.value.saveError)
         assertNull((store.loadWorkingSession() as com.example.calcstudiopro.functions.persistence.StudyStoreResult.Success).value)
+    }
+
+    @Test fun incompleteDraftIsPersistedWithoutReplacingTheValidatedExpression() {
+        val directory = temporaryFolder.newFolder("editor-draft").toPath()
+        val store = FunctionStudyStore(directory, MathExpressionEngine())
+        val initial = FunctionStudyViewModel(store)
+        initial.updateDraft(FunctionSlotId.F1, "x+2")
+        assertTrue(initial.validateDraft(FunctionSlotId.F1) is StudyValidationResult.Accepted)
+
+        initial.updateDraft(FunctionSlotId.F1, "sin(")
+        val inMemory = initial.state.value.study!!.slot(FunctionSlotId.F1)
+        assertEquals("x+2", inMemory.validatedExpression)
+        assertEquals("sin(", inMemory.draft)
+
+        val reopened = FunctionStudyViewModel(store).state.value.study!!.slot(FunctionSlotId.F1)
+        assertEquals("x+2", reopened.validatedExpression)
+        assertEquals("sin(", reopened.draft)
+    }
+
+    @Test fun validationFailureKeepsTheDraftAndSuccessAcceptsOnlyTheDraft() {
+        val store = FunctionStudyStore(temporaryFolder.newFolder("editor-validation").toPath(), MathExpressionEngine())
+        val viewModel = FunctionStudyViewModel(store)
+        viewModel.updateDraft(FunctionSlotId.F2, "x+1")
+        assertTrue(viewModel.validateDraft(FunctionSlotId.F2) is StudyValidationResult.Accepted)
+
+        viewModel.updateDraft(FunctionSlotId.F2, "x+")
+        val rejected = viewModel.validateDraft(FunctionSlotId.F2)
+        assertTrue(rejected is StudyValidationResult.Rejected)
+        assertEquals("x+1", viewModel.state.value.study!!.slot(FunctionSlotId.F2).validatedExpression)
+        assertEquals("x+", viewModel.state.value.study!!.slot(FunctionSlotId.F2).draft)
+
+        viewModel.updateDraft(FunctionSlotId.F2, "x+5")
+        assertTrue(viewModel.validateDraft(FunctionSlotId.F2) is StudyValidationResult.Accepted)
+        assertEquals("x+5", viewModel.state.value.study!!.slot(FunctionSlotId.F2).validatedExpression)
+        assertEquals("x+5", viewModel.state.value.study!!.slot(FunctionSlotId.F2).draft)
     }
 }

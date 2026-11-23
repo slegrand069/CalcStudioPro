@@ -8,6 +8,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.text.TextRange
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
 import com.example.calcstudiopro.functions.domain.FunctionColor
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
@@ -15,11 +18,18 @@ import com.example.calcstudiopro.functions.domain.FunctionStudy
 import com.example.calcstudiopro.functions.domain.StudyValidationResult
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 class FunctionStudyScreenTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Before fun resetEditorKeyboardMode() {
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+            .getSharedPreferences("function_expression_editor", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+    }
 
     @Test fun allSixEmptySlotsAndFutureActionsFitOnScreen() {
         composeRule.setContent {
@@ -119,6 +129,84 @@ class FunctionStudyScreenTest {
         composeRule.onNodeWithTag("functions-load-error").assertIsDisplayed()
         FunctionSlotId.ordered.forEach { slotId ->
             composeRule.onAllNodesWithTag("function-slot-${slotId.code}").assertCountEquals(0)
+        }
+    }
+
+    @Test fun editorShowsExactlySevenByFiveKeyboardRows() {
+        mountEditor("")
+        for (row in 0..6) for (column in 0..4) {
+            composeRule.onNodeWithTag("key-$row-$column").assertIsDisplayed()
+        }
+        composeRule.onNodeWithTag("editor-expression-area").assertIsDisplayed()
+    }
+
+    @Test fun insertionReplacesSelectionAndShiftSelectsInverseFunctions() {
+        mountEditor("x+1")
+        composeRule.onNodeWithTag("editor-expression").performTextInputSelection(TextRange(0, 1))
+        composeRule.onNodeWithTag("key-0-1").performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("sin(x)+1")
+
+        composeRule.onNodeWithTag("key-0-0").performClick()
+        composeRule.onNodeWithTag("key-0-1").performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("sin(x)asin(+1")
+    }
+
+    @Test fun clearCanBeUndoneAndAdvancedPaletteInsertsFunctions() {
+        mountEditor("x+2")
+        composeRule.onNodeWithTag("key-6-0").performClick()
+        composeRule.onNodeWithTag("editor-confirm-clear").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("editor-undo").performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("x+2")
+
+        composeRule.onNodeWithTag("key-5-4").performClick()
+        composeRule.onNodeWithTag("advanced-min").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("x+2min(")
+    }
+
+    @Test fun letterPaletteDisablesTAndKeyboardTogglePreservesDraft() {
+        mountEditor("a+x")
+        composeRule.onNodeWithTag("key-4-4").performClick()
+        composeRule.onNodeWithTag("letter-t").assertIsNotEnabled()
+        composeRule.onNodeWithTag("letter-x").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("a+xx")
+        composeRule.onNodeWithTag("editor-keyboard-toggle").performClick()
+        composeRule.onAllNodesWithTag("math-keyboard").assertCountEquals(0)
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("a+xx")
+    }
+
+    @Test fun validationFailureKeepsEditorAndText() {
+        mountEditor("x+", validate = { study, id -> study.validateFunction(id, MathExpressionEngine()) })
+        composeRule.onNodeWithTag("key-6-4").performClick()
+        composeRule.onNodeWithTag("editor-validation-error").assertIsDisplayed()
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("x+")
+    }
+
+    @Test fun androidInputNormalizesPointWithoutLosingTheCursor() {
+        mountEditor("")
+        composeRule.onNodeWithTag("editor-keyboard-toggle").performClick()
+        composeRule.onNodeWithTag("editor-expression").performTextInput("12.5")
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("12,5")
+        composeRule.onNodeWithTag("editor-expression").performTextInputSelection(TextRange(2))
+        composeRule.onNodeWithTag("editor-expression").performTextInput("+3")
+        composeRule.onNodeWithTag("editor-expression").assertTextEquals("12+3,5")
+    }
+
+    private fun mountEditor(
+        expression: String,
+        validate: (FunctionStudy, FunctionSlotId) -> StudyValidationResult? = { study, id -> study.validateFunction(id, MathExpressionEngine()) }
+    ) {
+        val study = FunctionStudy.newWorkingSession().withDraft(FunctionSlotId.F1, expression)
+        composeRule.setContent {
+            CalcStudioProTheme {
+                FunctionExpressionEditorScreen(
+                    slot = study.slot(FunctionSlotId.F1),
+                    study = study,
+                    onDraftChange = {},
+                    onValidate = { validate(study, FunctionSlotId.F1) },
+                    onBack = {},
+                    onValidated = {}
+                )
+            }
         }
     }
 }
