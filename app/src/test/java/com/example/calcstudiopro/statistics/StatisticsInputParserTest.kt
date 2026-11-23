@@ -21,6 +21,20 @@ class StatisticsInputParserTest {
         assertTrue(StatisticsInputParser.twoD("1\t2\n\n3\t4") is StatisticsInputParser.Parsed.Invalid)
     }
 
+    @Test fun parsesSlashSeparatedInlinePairsIncludingFrenchDecimals() {
+        val parsed = StatisticsInputParser.twoD("6;30 / 7;32 / 8,5;64,25") as StatisticsInputParser.Parsed.Valid
+        assertEquals(
+            listOf(
+                Statistics2DEngine.PairValue(6.0, 30.0),
+                Statistics2DEngine.PairValue(7.0, 32.0),
+                Statistics2DEngine.PairValue(8.5, 64.25)
+            ),
+            parsed.value
+        )
+        assertTrue(StatisticsInputParser.twoD("6;30 /") is StatisticsInputParser.Parsed.Invalid)
+        assertTrue(StatisticsInputParser.twoD("6;30 / 7;") is StatisticsInputParser.Parsed.Invalid)
+    }
+
     @Test fun parsesGroupedCountsAsPositiveIntegersOnly() {
         val parsed = StatisticsInputParser.frequencies("1,5;2\n3;4") as StatisticsInputParser.Parsed.Valid
         assertEquals(listOf(StatisticsEngine.Frequency(1.5, 2), StatisticsEngine.Frequency(3.0, 4)), parsed.value)

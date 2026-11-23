@@ -142,7 +142,7 @@ object StatisticsInputParser {
         return Parsed.Valid(rows)
     }
 
-    /** Accepts spreadsheet TSV or semicolon rows. A comma is reserved for French decimals. */
+    /** Accepts spreadsheet TSV, semicolon-separated rows, or slash-separated inline pairs. */
     fun twoD(text: String): Parsed<List<Statistics2DEngine.PairValue>> {
         if (text.isBlank()) return Parsed.Valid(emptyList())
         val lines = text.trim().lines()
@@ -150,18 +150,22 @@ object StatisticsInputParser {
         lines.forEachIndexed { index, raw ->
             if (raw.isBlank()) return Parsed.Invalid("Ligne vide.", index + 1)
             val line = index + 1
-            val cells = when {
-                raw.contains('\t') -> raw.split('\t')
-                raw.contains(';') -> raw.split(';')
-                else -> return Parsed.Invalid("Utilisez deux colonnes séparées par une tabulation ou un point-virgule.", line)
-            }.map(String::trim)
-            if (index == 0 && cells.size == 2 && cells[0].equals("x", true) && cells[1].equals("y", true)) return@forEachIndexed
-            if (cells.size != 2) return Parsed.Invalid("Deux colonnes X et Y sont requises.", line)
-            if (cells.any(String::isEmpty)) return Parsed.Invalid("Couple incomplet.", line)
-            val x = StatisticsEngine.parseNumber(cells[0]) ?: return Parsed.Invalid("Valeur X invalide : « ${cells[0]} ».", line)
-            val y = StatisticsEngine.parseNumber(cells[1]) ?: return Parsed.Invalid("Valeur Y invalide : « ${cells[1]} ».", line)
-            pairs += Statistics2DEngine.PairValue(x, y)
-            if (pairs.size > StatisticsEngine.MAX_VALUES) return Parsed.Invalid("La série est limitée à ${StatisticsEngine.MAX_VALUES} couples.", line)
+            val entries = raw.split('/')
+            entries.forEachIndexed { entryIndex, entry ->
+                if (entry.isBlank()) return Parsed.Invalid("Couple incomplet.", line)
+                val cells = when {
+                    entry.contains('\t') -> entry.split('\t')
+                    entry.contains(';') -> entry.split(';')
+                    else -> return Parsed.Invalid("Utilisez deux colonnes séparées par une tabulation ou un point-virgule.", line)
+                }.map(String::trim)
+                if (index == 0 && entryIndex == 0 && cells.size == 2 && cells[0].equals("x", true) && cells[1].equals("y", true)) return@forEachIndexed
+                if (cells.size != 2) return Parsed.Invalid("Deux colonnes X et Y sont requises.", line)
+                if (cells.any(String::isEmpty)) return Parsed.Invalid("Couple incomplet.", line)
+                val x = StatisticsEngine.parseNumber(cells[0]) ?: return Parsed.Invalid("Valeur X invalide : « ${cells[0]} ».", line)
+                val y = StatisticsEngine.parseNumber(cells[1]) ?: return Parsed.Invalid("Valeur Y invalide : « ${cells[1]} ».", line)
+                pairs += Statistics2DEngine.PairValue(x, y)
+                if (pairs.size > StatisticsEngine.MAX_VALUES) return Parsed.Invalid("La série est limitée à ${StatisticsEngine.MAX_VALUES} couples.", line)
+            }
         }
         return Parsed.Valid(pairs)
     }

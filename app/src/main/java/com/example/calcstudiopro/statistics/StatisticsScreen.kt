@@ -448,12 +448,19 @@ private fun Editor(state: StatisticsState, viewModel: StatisticsViewModel, clipb
                 ChoiceButton("Valeur + effectif", state.oneDGrouped) { viewModel.setOneDGrouped(true) }
             }
         }
-        Text(if (state.dimension == StatisticsDimension.ONE_D) if (state.oneDGrouped) "Valeur ; effectif · effectifs entiers positifs" else "Session 1D · une valeur par ligne" else "Session 2D · colonnes X et Y séparées par tabulation")
+        Text(if (state.dimension == StatisticsDimension.ONE_D) if (state.oneDGrouped) "Valeur ; effectif · effectifs entiers positifs" else "Session 1D · une valeur par ligne" else "Session 2D · X;Y par ligne ou couples séparés par /")
         val tableText = when { state.dimension == StatisticsDimension.TWO_D -> state.twoDText; state.oneDGrouped -> state.oneDFrequencyText; else -> state.oneDText }
         DataRows(tableText, state.dimension, state.oneDGrouped, Modifier.weight(1f).testTag("statistics-editor")) { updated ->
             when { state.dimension == StatisticsDimension.TWO_D -> viewModel.editTwoD(updated); state.oneDGrouped -> viewModel.editFrequencyText(updated); else -> viewModel.editOneD(updated) }
         }
-        OutlinedTextField(quickInput, { quickInput = it }, label = { Text("Saisie rapide") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            quickInput,
+            { quickInput = it },
+            label = { Text("Saisie rapide") },
+            supportingText = { Text(if (state.dimension == StatisticsDimension.TWO_D) "Ex. 6;30 / 7;32" else "Ex. 1 2 2 3") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { clipboard.getText()?.text?.let(pasteText) }) { Text("Coller") }
             OutlinedButton(onClick = {
