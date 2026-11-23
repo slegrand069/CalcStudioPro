@@ -112,6 +112,16 @@ class FunctionStudyTest {
         }
     }
 
+    @Test fun resettingParameterRemovesExplicitEntryAndRestoresDefaultValue() {
+        val study = FunctionStudy.newWorkingSession()
+        val set = (study.withParameter('A', 5.0) as StudyParameterUpdate.Updated).study
+        assertEquals(mapOf('a' to 5.0), set.revision().parameters)
+        val reset = (set.resetParameter('a') as StudyParameterUpdate.Updated).study
+        assertEquals(emptyMap<Char, Double>(), reset.revision().parameters)
+        assertEquals(1.0, reset.parameters.value('A'), 0.0)
+        assertTrue(reset.hasUnsavedChangesSince(study.revision()).not())
+    }
+
     @Test fun angleModeIsStudyLocalAndChangesEvaluationWithoutRecompilation() {
         val radStudy = validate(FunctionStudy.newWorkingSession(), FunctionSlotId.F1, "sin(x)")
         val compiled = radStudy.slot(FunctionSlotId.F1).compiledExpression

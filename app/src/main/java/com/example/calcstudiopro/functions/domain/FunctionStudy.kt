@@ -102,6 +102,18 @@ class FunctionSlot private constructor(
             compiledExpression = null
         )
 
+        internal fun restore(
+            revision: FunctionSlotRevision,
+            compiledExpression: CompiledMathExpression?
+        ): FunctionSlot = create(
+            id = revision.id,
+            validatedExpression = revision.validatedExpression,
+            draft = revision.draft,
+            color = revision.color,
+            isVisible = revision.isVisible,
+            compiledExpression = compiledExpression
+        )
+
         private fun create(
             id: FunctionSlotId,
             validatedExpression: String?,
@@ -151,6 +163,14 @@ class StudyParameters private constructor(values: Map<Char, Double>) {
         return ParameterUpdateResult.Updated(StudyParameters(values + (normalizedName to value)))
     }
 
+    fun reset(name: Char): ParameterUpdateResult {
+        val normalizedName = name.lowercaseChar()
+        if (!name.isLetter() || normalizedName in RESERVED_NAMES) {
+            return ParameterUpdateResult.Rejected(ParameterUpdateError.INVALID_NAME)
+        }
+        return ParameterUpdateResult.Updated(StudyParameters(values - normalizedName))
+    }
+
     override fun equals(other: Any?): Boolean = other is StudyParameters && values == other.values
     override fun hashCode(): Int = values.hashCode()
     override fun toString(): String = "StudyParameters(values=$values)"
@@ -158,10 +178,38 @@ class StudyParameters private constructor(values: Map<Char, Double>) {
     companion object {
         private val RESERVED_NAMES = setOf('x', 'e', 't', 'π')
         val defaults: StudyParameters = StudyParameters(emptyMap())
+
+        internal fun restore(values: Map<Char, Double>): StudyParameterRestoreResult {
+            var restored = defaults
+            val normalizedNames = HashSet<Char>()
+            for ((name, value) in values) {
+                val normalized = name.lowercaseChar()
+                if (!normalizedNames.add(normalized)) return StudyParameterRestoreResult.Invalid
+                when (val result = restored.withValue(name, value)) {
+                    is ParameterUpdateResult.Updated -> restored = result.parameters
+                    is ParameterUpdateResult.Rejected -> return StudyParameterRestoreResult.Invalid
+                }
+            }
+            return StudyParameterRestoreResult.Valid(restored)
+        }
     }
 }
 
+internal sealed interface StudyParameterRestoreResult {
+    data class Valid(val parameters: StudyParameters) : StudyParameterRestoreResult
+    data object Invalid : StudyParameterRestoreResult
+}
+
 enum class FunctionStudyKind { WORKING_SESSION, NAMED_STUDY, RECOVERY_SESSION }
+
+sealed interface FunctionStudyRestoreResult {
+    data class Restored(val study: FunctionStudy) : FunctionStudyRestoreResult
+    data class InvalidSnapshot(val reason: String) : FunctionStudyRestoreResult
+    data class SavedExpressionNoLongerCompiles(
+        val slotId: FunctionSlotId,
+        val error: MathExpressionError
+    ) : FunctionStudyRestoreResult
+}
 
 @JvmInline
 value class FunctionStudyId(val value: String) {
@@ -241,6 +289,13 @@ class FunctionStudy private constructor(
         is ParameterUpdateResult.Rejected -> StudyParameterUpdate.Rejected(update.error)
     }
 
+    fun resetParameter(name: Char): StudyParameterUpdate = when (val update = parameters.reset(name)) {
+        is ParameterUpdateResult.Updated -> StudyParameterUpdate.Updated(
+            FunctionStudy(id, kind, this.name, slots, update.parameters, angleMode)
+        )
+        is ParameterUpdateResult.Rejected -> StudyParameterUpdate.Rejected(update.error)
+    }
+
     fun validateFunction(id: FunctionSlotId, engine: MathExpressionEngine): StudyValidationResult =
         when (val result = slot(id).validate(engine)) {
             is FunctionValidationResult.Accepted -> StudyValidationResult.Accepted(
@@ -276,6 +331,54 @@ class FunctionStudy private constructor(
         fun newNamedStudy(name: String, id: FunctionStudyId = FunctionStudyId.new()): FunctionStudy {
             require(name.isNotBlank()) { "Named studies require a non-blank name" }
             return create(id, FunctionStudyKind.NAMED_STUDY, name)
+        }
+
+        fun newRecoverySession(id: FunctionStudyId = FunctionStudyId.new()): FunctionStudy = create(
+            id, FunctionStudyKind.RECOVERY_SESSION, name = null
+        )
+
+        fun restore(revision: FunctionStudyRevision, engine: MathExpressionEngine): FunctionStudyRestoreResult {
+            if (revision.slots.map { it.id } != FunctionSlotId.ordered) {
+                return FunctionStudyRestoreResult.InvalidSnapshot("Six slots in fixed order are required")
+            }
+            if (revision.kind == FunctionStudyKind.NAMED_STUDY && revision.name.isNullOrBlank()) {
+                return FunctionStudyRestoreResult.InvalidSnapshot("Named studies require a name")
+            }
+            val restoredParameters = when (val result = StudyParameters.restore(revision.parameters)) {
+                is StudyParameterRestoreResult.Valid -> result.parameters
+                StudyParameterRestoreResult.Invalid -> return FunctionStudyRestoreResult.InvalidSnapshot("Invalid parameter registry")
+            }
+            val restoredSlots = ArrayList<FunctionSlot>(FunctionSlotId.ordered.size)
+            for (slot in revision.slots) {
+                val compiled = if (slot.validatedExpression == null) {
+                    null
+                } else {
+                    if (slot.validatedExpression.isBlank()) {
+                        return FunctionStudyRestoreResult.InvalidSnapshot("A validated expression cannot be blank")
+                    }
+                    when (val compilation = engine.compile(slot.validatedExpression)) {
+                        is ExpressionCompilation.Success -> compilation.expression
+                        is ExpressionCompilation.Failure -> return FunctionStudyRestoreResult.SavedExpressionNoLongerCompiles(
+                            slot.id,
+                            compilation.error
+                        )
+                    }
+                }
+                restoredSlots += FunctionSlot.restore(slot, compiled)
+            }
+            return runCatching {
+                FunctionStudy(
+                    id = revision.studyId,
+                    kind = revision.kind,
+                    name = revision.name,
+                    slots = restoredSlots,
+                    parameters = restoredParameters,
+                    angleMode = revision.angleMode
+                )
+            }.fold(
+                onSuccess = FunctionStudyRestoreResult::Restored,
+                onFailure = { FunctionStudyRestoreResult.InvalidSnapshot(it.message ?: "Invalid study snapshot") }
+            )
         }
 
         private fun create(id: FunctionStudyId, kind: FunctionStudyKind, name: String?): FunctionStudy = FunctionStudy(
