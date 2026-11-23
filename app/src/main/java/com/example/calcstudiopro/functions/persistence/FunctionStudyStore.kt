@@ -19,11 +19,13 @@ import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.CREATE_NEW
+import java.nio.file.StandardOpenOption.READ
 import java.nio.file.StandardOpenOption.WRITE
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -36,6 +38,7 @@ import kotlin.concurrent.withLock
 
 enum class StudyStoreError {
     STORAGE,
+    FILE_TOO_LARGE,
     CONCURRENT_MODIFICATION,
     CORRUPT_DATA,
     INCOMPATIBLE_VERSION,
@@ -57,6 +60,12 @@ data class NamedStudySummary(val id: FunctionStudyId, val name: String)
 internal fun interface AtomicFileWriter {
     @Throws(IOException::class)
     fun write(target: Path, bytes: ByteArray)
+}
+
+internal fun interface BoundedRecordReader {
+    /** Returns null only when the record is absent; other access failures must be thrown. */
+    @Throws(IOException::class)
+    fun read(path: Path): ByteArray?
 }
 
 internal class StudyStoreFault(val error: StudyStoreError, detail: String) : RuntimeException(detail)
@@ -83,6 +92,37 @@ private object NioAtomicFileWriter : AtomicFileWriter {
             if (!moved) Files.deleteIfExists(temporary)
         }
     }
+}
+
+internal object NioBoundedRecordReader : BoundedRecordReader {
+    override fun read(path: Path): ByteArray? {
+        val channel = try {
+            FileChannel.open(path, READ)
+        } catch (_: NoSuchFileException) {
+            return null
+        }
+        channel.use {
+            val sizeAtOpen = channel.size()
+            if (sizeAtOpen > MAX_FILE_BYTES) {
+                throw StudyStoreFault(StudyStoreError.FILE_TOO_LARGE, "Study file exceeds 4 MiB")
+            }
+            // Read one byte beyond the observed size to detect growth during the read.
+            val buffer = ByteBuffer.allocate((sizeAtOpen + 1L).toInt())
+            while (buffer.hasRemaining()) {
+                val count = channel.read(buffer)
+                if (count < 0) break
+                if (count == 0) throw IOException("Study file read made no progress")
+            }
+            val bytesRead = buffer.position()
+            if (bytesRead > MAX_FILE_BYTES) {
+                throw StudyStoreFault(StudyStoreError.FILE_TOO_LARGE, "Study file exceeds 4 MiB")
+            }
+            if (bytesRead.toLong() != sizeAtOpen) throw IOException("Study file changed while being read")
+            return buffer.array().copyOf(bytesRead)
+        }
+    }
+
+    private const val MAX_FILE_BYTES = 4 * 1024 * 1024
 }
 
 /** Storage DTOs intentionally contain only durable values, never compiled expressions or ASTs. */
@@ -121,22 +161,29 @@ class FunctionStudyStore private constructor(
     directory: Path,
     private val engine: MathExpressionEngine,
     private val atomicWriter: AtomicFileWriter,
+    private val recordReader: BoundedRecordReader,
     @Suppress("UNUSED_PARAMETER") marker: Unit
 ) {
     private val directory = directory.toAbsolutePath().normalize()
     private val operationLock = ReentrantLock()
 
     constructor(directory: Path, engine: MathExpressionEngine = MathExpressionEngine()) :
-        this(directory, engine, NioAtomicFileWriter, Unit)
+        this(directory, engine, NioAtomicFileWriter, NioBoundedRecordReader, Unit)
 
     internal constructor(directory: Path, engine: MathExpressionEngine, atomicWriter: AtomicFileWriter) :
-        this(directory, engine, atomicWriter, Unit)
+        this(directory, engine, atomicWriter, NioBoundedRecordReader, Unit)
+
+    internal constructor(
+        directory: Path,
+        engine: MathExpressionEngine,
+        atomicWriter: AtomicFileWriter,
+        recordReader: BoundedRecordReader
+    ) : this(directory, engine, atomicWriter, recordReader, Unit)
 
     /** A missing file returns null; callers may then use a fresh default session. */
     fun loadWorkingSession(): StudyStoreResult<FunctionStudy?> = guarded {
-        val path = workingPath()
-        if (!Files.exists(path)) return@guarded null
-        val study = restore(readRevision(path))
+        val revision = readRevisionOrNull(workingPath()) ?: return@guarded null
+        val study = restore(revision)
         requireKind(study, FunctionStudyKind.WORKING_SESSION)
         study
     }
@@ -154,8 +201,9 @@ class FunctionStudyStore private constructor(
     ): StudyStoreResult<Unit> = guarded {
         requireKind(study, FunctionStudyKind.WORKING_SESSION)
         val path = workingPath()
-        if (Files.exists(path)) {
-            val old = readRevision(path)
+        val existing = readRevisionOrNull(path)
+        if (existing != null) {
+            val old = existing
             if (old.studyId != study.id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Working session ID changed")
             requireKind(old, FunctionStudyKind.WORKING_SESSION)
             restore(old)
@@ -174,25 +222,33 @@ class FunctionStudyStore private constructor(
     fun createNamedStudy(study: FunctionStudy): StudyStoreResult<Unit> = guarded {
         requireKind(study, FunctionStudyKind.NAMED_STUDY)
         val path = namedPath(study.id)
-        if (Files.exists(path)) fault(StudyStoreError.DUPLICATE_ID, "Study ID already exists")
+        if (recordReader.read(path) != null) fault(StudyStoreError.DUPLICATE_ID, "Study ID already exists")
         atomicWriter.write(path, FunctionStudyCodec.encode(study.revision()))
     }
 
     fun loadNamedStudy(id: FunctionStudyId): StudyStoreResult<FunctionStudy> = guarded {
         val path = namedPath(id)
-        if (!Files.exists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
-        restore(readRevision(path)).also { requireKind(it, FunctionStudyKind.NAMED_STUDY) }
+        val revision = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
+        if (revision.studyId != id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Stored study ID does not match requested ID")
+        restore(revision).also { requireKind(it, FunctionStudyKind.NAMED_STUDY) }
     }
 
     fun listNamedStudies(): StudyStoreResult<List<NamedStudySummary>> = guarded {
         val directory = namedDirectory()
-        if (!Files.exists(directory)) return@guarded emptyList()
-        Files.list(directory).use { paths ->
+        val paths = try {
+            Files.list(directory)
+        } catch (_: NoSuchFileException) {
+            return@guarded emptyList()
+        }
+        paths.use { entries ->
             Collections.unmodifiableList(
-                paths.filter { Files.isRegularFile(it) && it.fileName.toString().endsWith(FILE_SUFFIX) }
+                entries.filter { it.fileName.toString().endsWith(FILE_SUFFIX) }
                     .map { path ->
                         val study = restore(readRevision(path))
                         requireKind(study, FunctionStudyKind.NAMED_STUDY)
+                        if (namedPath(study.id) != path) {
+                            fault(StudyStoreError.STUDY_ID_MISMATCH, "Stored study ID does not match its file name")
+                        }
                         NamedStudySummary(study.id, requireNotNull(study.name))
                     }
                     .sorted(compareBy<NamedStudySummary> { it.name.lowercase() }.thenBy { it.id.value })
@@ -207,8 +263,7 @@ class FunctionStudyStore private constructor(
     ): StudyStoreResult<Unit> = guarded {
         requireKind(study, FunctionStudyKind.NAMED_STUDY)
         val path = namedPath(study.id)
-        if (!Files.exists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
-        val old = readRevision(path)
+        val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
         requireKind(old, FunctionStudyKind.NAMED_STUDY)
         if (old.studyId != study.id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Study ID does not match stored record")
         if (old.name != study.name) fault(StudyStoreError.INVALID_STUDY, "Use renameNamedStudy to change the name")
@@ -224,8 +279,7 @@ class FunctionStudyStore private constructor(
     fun renameNamedStudy(id: FunctionStudyId, newName: String): StudyStoreResult<Unit> = guarded {
         if (newName.isBlank()) fault(StudyStoreError.INVALID_STUDY, "Named studies require a non-blank name")
         val path = namedPath(id)
-        if (!Files.exists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
-        val old = readRevision(path)
+        val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
         requireKind(old, FunctionStudyKind.NAMED_STUDY)
         if (old.studyId != id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Study ID does not match stored record")
         restore(old)
@@ -235,18 +289,16 @@ class FunctionStudyStore private constructor(
 
     fun deleteNamedStudy(id: FunctionStudyId): StudyStoreResult<Unit> = guarded {
         val path = namedPath(id)
-        if (!Files.exists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
-        val old = readRevision(path)
+        val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
         requireKind(old, FunctionStudyKind.NAMED_STUDY)
         if (old.studyId != id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Study ID does not match stored record")
         restore(old)
-        Files.delete(path)
+        if (!Files.deleteIfExists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
     }
 
     fun loadRecoverySession(): StudyStoreResult<FunctionStudy?> = guarded {
-        val path = recoveryPath()
-        if (!Files.exists(path)) return@guarded null
-        restore(readRevision(path)).also { requireKind(it, FunctionStudyKind.RECOVERY_SESSION) }
+        val revision = readRevisionOrNull(recoveryPath()) ?: return@guarded null
+        restore(revision).also { requireKind(it, FunctionStudyKind.RECOVERY_SESSION) }
     }
 
     /** Existing recovery data is replaced only when the caller explicitly opts in. */
@@ -257,8 +309,9 @@ class FunctionStudyStore private constructor(
     ): StudyStoreResult<Unit> = guarded {
         requireKind(study, FunctionStudyKind.RECOVERY_SESSION)
         val path = recoveryPath()
-        if (Files.exists(path)) {
-            val old = readRevision(path)
+        val existing = readRevisionOrNull(path)
+        if (existing != null) {
+            val old = existing
             requireKind(old, FunctionStudyKind.RECOVERY_SESSION)
             restore(old)
             if (!allowReplace) fault(StudyStoreError.RECOVERY_ALREADY_EXISTS, "Recovery session already exists")
@@ -276,11 +329,10 @@ class FunctionStudyStore private constructor(
 
     fun deleteRecoverySession(): StudyStoreResult<Unit> = guarded {
         val path = recoveryPath()
-        if (!Files.exists(path)) fault(StudyStoreError.NOT_FOUND, "Recovery session not found")
-        val old = readRevision(path)
+        val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Recovery session not found")
         requireKind(old, FunctionStudyKind.RECOVERY_SESSION)
         restore(old)
-        Files.delete(path)
+        if (!Files.deleteIfExists(path)) fault(StudyStoreError.NOT_FOUND, "Recovery session not found")
     }
 
     private fun restore(revision: FunctionStudyRevision): FunctionStudy = when (val restored = FunctionStudy.restore(revision, engine)) {
@@ -300,13 +352,18 @@ class FunctionStudyStore private constructor(
         if (revision.kind != expected) fault(StudyStoreError.INVALID_STUDY, "Expected $expected, found ${revision.kind}")
     }
 
-    private fun readRevision(path: Path): FunctionStudyRevision {
+    private fun readRevision(path: Path): FunctionStudyRevision =
+        readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Study file not found")
+
+    private fun readRevisionOrNull(path: Path): FunctionStudyRevision? {
         val bytes = try {
-            Files.readAllBytes(path)
+            recordReader.read(path)
+        } catch (error: StudyStoreFault) {
+            throw error
         } catch (error: IOException) {
             fault(StudyStoreError.STORAGE, error.message ?: "Read failed")
         }
-        return FunctionStudyCodec.decode(bytes)
+        return bytes?.let(FunctionStudyCodec::decode)
     }
 
     private fun workingPath() = directory.resolve(WORKING_FILE)

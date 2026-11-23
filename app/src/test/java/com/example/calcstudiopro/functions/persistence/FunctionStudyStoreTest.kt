@@ -17,8 +17,10 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.IOException
+import java.nio.file.AccessDeniedException
 import java.nio.ByteBuffer
 import java.nio.file.Files
+import java.security.MessageDigest
 
 class FunctionStudyStoreTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
@@ -146,6 +148,68 @@ class FunctionStudyStoreTest {
         bytes[bytes.lastIndex - 8] = (bytes[bytes.lastIndex - 8].toInt() xor 0x40).toByte()
         Files.write(file, bytes)
         assertEquals(StudyStoreError.CORRUPT_DATA, failure(store.loadWorkingSession()).error)
+    }
+
+    @Test fun oversizedWorkingFileIsRejectedWithABoundedReadError() {
+        val directory = temporaryFolder.newFolder("oversized").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        val file = directory.resolve("working.cspf")
+        val oversized = ByteArray(4 * 1024 * 1024 + 1)
+        Files.write(file, oversized)
+
+        assertEquals(StudyStoreError.FILE_TOO_LARGE, failure(store.loadWorkingSession()).error)
+        assertEquals(StudyStoreError.FILE_TOO_LARGE, failure(store.loadOrCreateWorkingSession()).error)
+        assertEquals(oversized.size.toLong(), Files.size(file))
+    }
+
+    @Test fun inaccessibleSessionIsNotTreatedAsAbsentAndReadFailurePreservesBytes() {
+        val directory = temporaryFolder.newFolder("read-access").toPath()
+        val normalStore = FunctionStudyStore(directory, engine)
+        assertNull(success(normalStore.loadWorkingSession()))
+        val saved = validate(FunctionStudy.newWorkingSession(FunctionStudyId("protected")), FunctionSlotId.F1, "x+1")
+        success(normalStore.saveWorkingSession(saved))
+        val file = directory.resolve("working.cspf")
+        val originalBytes = Files.readAllBytes(file)
+
+        val deniedReader = BoundedRecordReader { path ->
+            if (path.fileName.toString() == "working.cspf") throw AccessDeniedException(path.toString())
+            NioBoundedRecordReader.read(path)
+        }
+        val inaccessibleStore = FunctionStudyStore(
+            directory,
+            engine,
+            AtomicFileWriter { target, bytes -> Files.write(target, bytes) },
+            deniedReader
+        )
+
+        assertEquals(StudyStoreError.STORAGE, failure(inaccessibleStore.loadWorkingSession()).error)
+        assertEquals(StudyStoreError.STORAGE, failure(inaccessibleStore.loadOrCreateWorkingSession()).error)
+        val changed = validate(saved.withDraft(FunctionSlotId.F1, "x+2"), FunctionSlotId.F1, "x+2")
+        assertEquals(
+            StudyStoreError.STORAGE,
+            failure(inaccessibleStore.saveWorkingSession(changed, saved.revision())).error
+        )
+        assertTrue(originalBytes.contentEquals(Files.readAllBytes(file)))
+        assertEquals(saved.revision(), success(normalStore.loadWorkingSession())!!.revision())
+    }
+
+    @Test fun namedLoadRejectsRecordWhoseStoredIdDoesNotMatchRequestedId() {
+        val directory = temporaryFolder.newFolder("id-mismatch").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        val stored = FunctionStudy.newNamedStudy("Stored", FunctionStudyId("stored-id"))
+        success(store.createNamedStudy(stored))
+        val namedDirectory = directory.resolve("named")
+        val source = Files.list(namedDirectory).use { it.findFirst().orElseThrow() }
+        val requestedId = FunctionStudyId("requested-id")
+        val requestedFileName = MessageDigest.getInstance("SHA-256")
+            .digest(requestedId.value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) } + ".cspf"
+        Files.copy(source, namedDirectory.resolve(requestedFileName))
+
+        assertEquals(
+            StudyStoreError.STUDY_ID_MISMATCH,
+            failure(store.loadNamedStudy(requestedId)).error
+        )
     }
 
     @Test fun writeFailureLeavesPreviouslyCommittedRecordReadable() {
