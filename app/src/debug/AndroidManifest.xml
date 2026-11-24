@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.example.calcstudiopro.functions.graph.ui.FunctionGraphCanvasDemoActivity"
+            android:exported="true"
+            android:label="Aperçu grapheur Fonctions"
+            android:theme="@style/Theme.CalcStudioPro" />
+    </application>
+</manifest>
