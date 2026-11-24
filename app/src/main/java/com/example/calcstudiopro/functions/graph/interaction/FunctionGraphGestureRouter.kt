@@ -20,7 +20,10 @@ fun Modifier.functionGraphGestures(
     onGestureStart: () -> Unit,
     onGestureEnd: () -> Unit,
     onTap: (ScreenPoint) -> Unit = {},
-    onDoubleTap: () -> Unit
+    onDoubleTap: () -> Unit,
+    isNearMarker: (ScreenPoint) -> Boolean = { false },
+    onMarkerDrag: (ScreenPoint) -> Unit = {},
+    onMarkerDragEnd: () -> Unit = {}
 ): Modifier = pointerInput(plot) {
     var lastTap: TapRecord? = null
     awaitEachGesture {
@@ -33,10 +36,13 @@ fun Modifier.functionGraphGestures(
         var gestureStarted = false
         var previousCentroid = down.position
         var dragging = false
+        var markerArmed = isNearMarker(ScreenPoint(downPosition.x.toDouble(), downPosition.y.toDouble()))
+        var markerDragging = false
 
         fun startGesture() {
             if (!gestureStarted) {
                 gestureStarted = true
+                lastTap = null
                 onGestureStart()
             }
         }
@@ -47,6 +53,7 @@ fun Modifier.functionGraphGestures(
             if (pressed.isEmpty()) {
                 val released = event.changes.firstOrNull { it.id == downId }?.position ?: downPosition
                 if (gestureStarted) {
+                    if (markerDragging) onMarkerDragEnd()
                     onGestureEnd()
                 } else if (!moved && !multiTouch) {
                     val now = event.changes.maxOfOrNull(PointerInputChange::uptimeMillis) ?: down.uptimeMillis
@@ -68,7 +75,11 @@ fun Modifier.functionGraphGestures(
             val current = pressed.associate { it.id to it.position }
             if (current.size != previous.size || current.keys != previous.keys) {
                 // Rebase when pointer count/identity changes. No synthetic pan or scale is emitted.
-                if (current.size > 1) multiTouch = true
+                if (current.size > 1) {
+                    multiTouch = true
+                    markerArmed = false
+                    markerDragging = false
+                }
                 previous = current
                 previousCentroid = centroid(current.values)
                 continue
@@ -83,16 +94,20 @@ fun Modifier.functionGraphGestures(
                     dragging = true
                     moved = true
                     startGesture()
-                    onViewportChange(
-                        FunctionGraphViewportController.pan(viewport(), total.x.toDouble(), total.y.toDouble(), plot)
-                    )
+                    if (markerArmed) {
+                        markerDragging = true
+                        onMarkerDrag(ScreenPoint(position.x.toDouble(), position.y.toDouble()))
+                    } else onViewportChange(
+                            FunctionGraphViewportController.pan(viewport(), total.x.toDouble(), total.y.toDouble(), plot)
+                        )
                 } else if (dragging) {
                     moved = true
                     startGesture()
                     val delta = position - oldPosition
-                    onViewportChange(
-                        FunctionGraphViewportController.pan(viewport(), delta.x.toDouble(), delta.y.toDouble(), plot)
-                    )
+                    if (markerDragging) onMarkerDrag(ScreenPoint(position.x.toDouble(), position.y.toDouble()))
+                    else onViewportChange(
+                            FunctionGraphViewportController.pan(viewport(), delta.x.toDouble(), delta.y.toDouble(), plot)
+                        )
                 }
                 previousCentroid = position
             } else {

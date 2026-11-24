@@ -16,6 +16,7 @@ import com.example.calcstudiopro.functions.graph.render.FunctionCurveRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGraphRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGridMode
 import com.example.calcstudiopro.functions.graph.ui.FunctionGraphCanvas
+import com.example.calcstudiopro.functions.graph.ui.FunctionGraphMarkerPresentation
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
@@ -116,6 +117,41 @@ class FunctionGraphCanvasTest {
         } }
         assertTrue("Saved navy curve should be visible", neighborhood.contains(FunctionColor.NAVY.argb.toInt()))
         assertTrue("White contrast outline should be rendered", neighborhood.contains(Color.White.toArgb()))
+    }
+
+    @Test fun selectedMarkerDrawsCalloutAndExposesAccessibleCoordinates() {
+        composeRule.setContent {
+            CalcStudioProTheme(darkTheme = true) {
+                FunctionGraphCanvas(
+                    model = singleVisibleCurveModel(FunctionColor.CYAN, y = 0.75),
+                    viewport = viewport,
+                    gridMode = FunctionGridMode.NONE,
+                    marker = FunctionGraphMarkerPresentation(FunctionSlotId.F1, 0.0, 0.75,
+                        "f1 • provisoire\nx = 0\ny ≈ 0,75"),
+                    modifier = androidx.compose.ui.Modifier.size(320.dp, 220.dp),
+                    testTag = "marker-presentation"
+                )
+            }
+        }
+        val node = composeRule.onNodeWithTag("marker-presentation")
+        val semantics = node.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
+        assertTrue(semantics.contains("sélection f1") && semantics.contains("provisoire") && semantics.contains("y ≈ 0,75"))
+        val pixels = node.captureToImage().toPixelMap()
+        val density = pixels.height / 220f
+        val plotCenterX = (56f + (320f - 56f - 12f) / 2f) * density
+        val plotY = (12f + (1f - (0.75f + 4f) / 8f) * 170f) * density
+        val ringRadius = 7f * density
+        val markerRingPixels = (-ringRadius.toInt()..ringRadius.toInt()).any { dy ->
+            (-ringRadius.toInt()..ringRadius.toInt()).any { dx ->
+                val distance = kotlin.math.hypot(dx.toFloat(), dy.toFloat())
+                val x = (plotCenterX + dx).roundToInt()
+                val y = (plotY + dy).roundToInt()
+                x in 0 until pixels.width && y in 0 until pixels.height &&
+                    distance in (4f * density)..(8f * density) &&
+                    pixels[x, y].let { it.red > 0.98f && it.green > 0.98f && it.blue > 0.98f }
+            }
+        }
+        assertTrue("White marker ring should be drawn around ($plotCenterX,$plotY)", markerRingPixels)
     }
 
     @Test fun curvesAreClippedAndDisjointSegmentsRemainSeparate() {

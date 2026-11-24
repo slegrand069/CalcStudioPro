@@ -167,7 +167,8 @@ object FunctionGraphGeometryBuilder {
     }
 
     /** Project each F2.1 segment independently and clip in normalized Double coordinates. */
-    private fun projectAndClipSegment(
+    /** Shared by rendering and hit-testing so both observe the same source-viewport clipping. */
+    internal fun projectAndClipSegment(
         points: List<FunctionGraphPoint>,
         viewport: GraphViewport,
         plot: PlotRect

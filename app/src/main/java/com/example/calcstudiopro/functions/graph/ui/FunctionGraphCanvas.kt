@@ -11,6 +11,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -19,6 +22,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
@@ -34,7 +38,16 @@ import com.example.calcstudiopro.functions.graph.render.FunctionGraphPathTransfo
 import com.example.calcstudiopro.functions.graph.render.drawFunctionGraph
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.statistics.graph.model.PlotRect
+import com.example.calcstudiopro.statistics.graph.domain.GraphTransform
+import com.example.calcstudiopro.statistics.graph.model.DataPoint
 import kotlin.math.max
+
+data class FunctionGraphMarkerPresentation(
+    val slotId: com.example.calcstudiopro.functions.domain.FunctionSlotId,
+    val x: Double,
+    val y: Double,
+    val label: String
+)
 
 /**
  * Function graph display. All expression evaluation must happen before this composable receives [model].
@@ -49,6 +62,7 @@ fun FunctionGraphCanvas(
     gridMode: FunctionGridMode = FunctionGridMode.MAJOR,
     modifier: Modifier = Modifier.fillMaxWidth().height(320.dp),
     viewportGeneration: Long = 0L,
+    marker: FunctionGraphMarkerPresentation? = null,
     testTag: String = "function-graph-canvas"
 ) {
     val colors = MaterialTheme.colorScheme
@@ -110,6 +124,17 @@ fun FunctionGraphCanvas(
         val yLabels = remember(geometry.yTicks, labelStyle, geometry.plot, density.density) {
             placeYTickLabels(geometry, textMeasurer, labelStyle, density.density)
         }
+        val markerLabel = remember(marker, labelStyle) { marker?.let { textMeasurer.measure(AnnotatedString(it.label), labelStyle) } }
+        val markerCurve = marker?.let { selection -> model.curves.firstOrNull { it.id == selection.slotId } }
+        val markerPoint = if (marker != null && markerCurve?.isVisible == true &&
+            marker.x.isFinite() && marker.y.isFinite() && marker.x in viewport.x.minimum..viewport.x.maximum &&
+            marker.y in viewport.y.minimum..viewport.y.maximum
+        ) GraphTransform(viewport, plot).dataToScreen(DataPoint(marker.x, marker.y)) else null
+        val markerStatus = when {
+            marker == null -> ""
+            markerPoint != null && markerCurve?.isVisible == true -> "; sélection ${marker.slotId.code}, ${marker.label.replace('\n', ' ')}"
+            else -> "; ${marker.slotId.code} sélectionnée, marqueur masqué"
+        }
         val visibleStatus = model.curves.joinToString("; ") { curve ->
             "${curve.id.code}: ${when {
                 !curve.isVisible -> "masquée"
@@ -126,7 +151,7 @@ fun FunctionGraphCanvas(
         Canvas(
             modifier = Modifier.fillMaxSize().testTag(testTag).semantics {
                 contentDescription = "Graphe de fonctions. Génération données ${model.dataGeneration ?: "aucune"}. $visibleStatus"
-                stateDescription = "X ${viewport.x.minimum} à ${viewport.x.maximum} ; Y ${viewport.y.minimum} à ${viewport.y.maximum}"
+                stateDescription = "X ${viewport.x.minimum} à ${viewport.x.maximum} ; Y ${viewport.y.minimum} à ${viewport.y.maximum}$markerStatus"
             }
         ) {
             drawFunctionGraph(
@@ -141,6 +166,25 @@ fun FunctionGraphCanvas(
                 labelColor = colors.onSurface,
                 pathTransform = pathTransform
             )
+            if (markerPoint != null && markerLabel != null && markerPoint.x.isFinite() && markerPoint.y.isFinite() &&
+                markerPoint.x in plot.left..(plot.left + plot.width) && markerPoint.y in plot.top..(plot.top + plot.height)
+            ) {
+                val px = markerPoint.x.toFloat()
+                val py = markerPoint.y.toFloat()
+                drawCircle(Color.White, radius = 7.dp.toPx(), center = Offset(px, py))
+                drawCircle(Color(markerCurve!!.color.argb.toInt()), radius = 4.dp.toPx(), center = Offset(px, py))
+                drawCircle(Color.White.copy(alpha = 0.85f), radius = 7.dp.toPx(), center = Offset(px, py), style = Stroke(1.dp.toPx()))
+                val padding = 7.dp.toPx()
+                val width = markerLabel.size.width + padding * 2
+                val height = markerLabel.size.height + padding * 2
+                val left = if (px + 14.dp.toPx() + width <= size.width) px + 14.dp.toPx() else px - 14.dp.toPx() - width
+                val top = if (py - height - 10.dp.toPx() >= 0f) py - height - 10.dp.toPx() else py + 10.dp.toPx()
+                val safeLeft = left.coerceIn(0f, (size.width - width).coerceAtLeast(0f))
+                val safeTop = top.coerceIn(0f, (size.height - height).coerceAtLeast(0f))
+                drawRoundRect(colors.surface.copy(alpha = 0.96f), Offset(safeLeft, safeTop), androidx.compose.ui.geometry.Size(width, height), CornerRadius(8.dp.toPx()))
+                drawRoundRect(colors.outlineVariant, Offset(safeLeft, safeTop), androidx.compose.ui.geometry.Size(width, height), CornerRadius(8.dp.toPx()), style = Stroke(1.dp.toPx()))
+                drawText(markerLabel, color = colors.onSurface, topLeft = Offset(safeLeft + padding, safeTop + padding))
+            }
         }
     }
 }

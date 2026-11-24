@@ -46,18 +46,29 @@ import androidx.compose.ui.unit.dp
 import com.example.calcstudiopro.functions.domain.FunctionColorPalette
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.domain.functions.ExpressionCompilation
+import com.example.calcstudiopro.domain.functions.ExpressionEvaluation
+import com.example.calcstudiopro.domain.functions.FunctionAngleMode
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
+import com.example.calcstudiopro.domain.functions.MathExpressionError
 import com.example.calcstudiopro.functions.graph.FunctionGraphInput
 import com.example.calcstudiopro.functions.graph.FunctionGraphCalculator
 import com.example.calcstudiopro.functions.graph.FunctionGraphStatus
 import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphCalculationCoordinator
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphCurveHitTester
 import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphContentSnapshot
 import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphViewportController
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphSelectionController
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphSelectionContext
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphMarkerEvaluation
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphPointEvaluationCoordinator
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphMarkerDrag
 import com.example.calcstudiopro.functions.graph.render.FunctionCurveRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGraphRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGridMode
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
+import com.example.calcstudiopro.statistics.graph.model.ScreenPoint
+import com.example.calcstudiopro.statistics.graph.domain.GraphNumberFormatter
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
 import com.example.calcstudiopro.functions.graph.interaction.functionGraphGestures
 
@@ -147,6 +158,22 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                     functionPlotRectForCanvas(widthPx, heightPx, density.density.toDouble())
                 }
                 val scope = rememberCoroutineScope()
+                val selection = remember(density.density) {
+                    FunctionGraphSelectionController(
+                        FunctionGraphCurveHitTester.radiusPixels(density = density.density.toDouble())
+                    )
+                }
+                val selectionState by selection.state.collectAsState()
+                val evaluationCoordinator = remember(scope, selection) {
+                    FunctionGraphPointEvaluationCoordinator(scope, onResult = { request, result ->
+                        val evaluation = when (result) {
+                            is ExpressionEvaluation.Success -> FunctionGraphMarkerEvaluation.Confirmed(result.value)
+                            is ExpressionEvaluation.Failure -> if (result.error is MathExpressionError.NonFiniteResult)
+                                FunctionGraphMarkerEvaluation.Undefined else FunctionGraphMarkerEvaluation.Error(result.error)
+                        }
+                        selection.applyEvaluation(request.requestId, request.slotId, request.x, request.contentRevision, evaluation)
+                    })
+                }
                 val content = remember { FunctionGraphCanvasDemoData.content }
                 val coordinator = remember(scope, content) {
                     FunctionGraphCalculationCoordinator(
@@ -158,8 +185,9 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                         calculator = FunctionGraphCalculator(scope)
                     )
                 }
-                DisposableEffect(coordinator) { onDispose { coordinator.close() } }
+                DisposableEffect(coordinator, evaluationCoordinator) { onDispose { coordinator.close(); evaluationCoordinator.close() } }
                 LaunchedEffect(coordinator, plot.width, plot.height) {
+                    selection.invalidateCycle()
                     coordinator.updatePlotSize(plot.width.toInt().coerceAtLeast(1), plot.height.toInt().coerceAtLeast(1))
                 }
                 val state by coordinator.state.collectAsState()
@@ -167,21 +195,107 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                 val model = remember(state.available, content) {
                     FunctionGraphCanvasDemoData.renderModel(state.available?.batch)
                 }
+                LaunchedEffect(model, state.available?.contentRevision) {
+                    selection.onRenderModelChanged(model, state.available?.contentRevision ?: content.revision)
+                }
                 val curveViewport = state.available?.request?.let {
                     com.example.calcstudiopro.statistics.graph.model.GraphViewport(it.xRange, it.yRange)
                 } ?: FunctionGraphViewportController.INITIAL
+                val marker = selectionState.marker?.let { selected ->
+                    val y = selected.displayedY
+                    val visible = model.curves.firstOrNull { it.id == selected.slotId }?.isVisible == true
+                    if (y == null || !visible) null else {
+                        val approximate = selected.evaluation !is FunctionGraphMarkerEvaluation.Confirmed
+                        val status = when (val evaluation = selected.evaluation) {
+                            is FunctionGraphMarkerEvaluation.Error -> "non défini"
+                            FunctionGraphMarkerEvaluation.Undefined -> "non défini"
+                            FunctionGraphMarkerEvaluation.Provisional, FunctionGraphMarkerEvaluation.Pending -> if (approximate) "provisoire" else ""
+                            is FunctionGraphMarkerEvaluation.Confirmed -> ""
+                        }
+                        FunctionGraphMarkerPresentation(
+                            selected.slotId, selected.x, y,
+                            "${selected.slotId.code}${if (status.isNotEmpty()) " • $status" else ""}\nx = ${GraphNumberFormatter.format(selected.x)}\ny ${if (approximate) "≈ " else "= "}${GraphNumberFormatter.format(y)}"
+                        )
+                    }
+                }
+                fun requestEvaluation(markerState: com.example.calcstudiopro.functions.graph.interaction.FunctionGraphMarkerState, final: Boolean) {
+                    val accepted = coordinator.state.value.available ?: return
+                    if (accepted.contentRevision != markerState.contentRevision) return
+                    val input = accepted.request.functions.firstOrNull { it.id == markerState.slotId } ?: return
+                    val expression = input.expression ?: return
+                    val id = evaluationCoordinator.submit(
+                        markerState.slotId, markerState.x, accepted.contentRevision, expression,
+                        accepted.request.parameters, accepted.request.angleMode, isFinal = final
+                    )
+                    selection.setEvaluationRequest(markerState, id)
+                }
+                fun context() = FunctionGraphSelectionContext(
+                    contentRevision = coordinator.state.value.available?.contentRevision ?: content.revision,
+                    dataGeneration = coordinator.state.value.available?.batch?.generation,
+                    viewportGeneration = coordinator.state.value.displayedViewportGeneration
+                )
                 FunctionGraphCanvas(
                     model = model,
                     viewport = state.displayedViewport,
                     curveViewport = curveViewport,
                     gridMode = FunctionGridMode.MAJOR_AND_MINOR,
+                    marker = marker,
                     modifier = Modifier.fillMaxSize().functionGraphGestures(
                         viewport = { displayed.value },
                         plot = plot,
-                        onViewportChange = coordinator::updateDisplayedViewport,
-                        onGestureStart = coordinator::beginGesture,
+                        onViewportChange = { viewport ->
+                            coordinator.updateDisplayedViewport(viewport)
+                            selection.invalidateCycle()
+                        },
+                        onGestureStart = { selection.commitPendingTap(); selection.invalidateCycle(); coordinator.beginGesture() },
                         onGestureEnd = coordinator::endGesture,
-                        onDoubleTap = coordinator::resetViewport
+                        onTap = { touch ->
+                            selection.commitPendingTap()
+                            val latest = coordinator.state.value
+                            val available = latest.available ?: return@functionGraphGestures
+                            val sourceViewport = GraphViewport(available.request.xRange, available.request.yRange)
+                            val candidates = FunctionGraphCurveHitTester.candidatesNear(
+                                model, sourceViewport, latest.displayedViewport, plot, plot, touch,
+                                FunctionGraphCurveHitTester.radiusPixels(density = density.density.toDouble())
+                            )
+                            val chosen = selection.select(candidates, touch, context(), android.os.SystemClock.uptimeMillis())
+                            if (chosen != null) requestEvaluation(chosen, final = false)
+                        },
+                        onDoubleTap = {
+                            evaluationCoordinator.invalidate()
+                            selection.rollbackPendingTapForDoubleTap()
+                            selection.invalidateCycle()
+                            coordinator.resetViewport()
+                        },
+                        isNearMarker = { point ->
+                            val current = selection.state.value.marker ?: return@functionGraphGestures false
+                            val y = current.displayedY ?: return@functionGraphGestures false
+                            val latest = coordinator.state.value
+                            if (model.curves.firstOrNull { it.id == current.slotId }?.isVisible != true ||
+                                current.x !in latest.displayedViewport.x.minimum..latest.displayedViewport.x.maximum ||
+                                y !in latest.displayedViewport.y.minimum..latest.displayedViewport.y.maximum) return@functionGraphGestures false
+                            val screen = com.example.calcstudiopro.statistics.graph.domain.GraphTransform(
+                                latest.displayedViewport, plot
+                            ).dataToScreen(com.example.calcstudiopro.statistics.graph.model.DataPoint(current.x, y))
+                            kotlin.math.hypot(screen.x - point.x, screen.y - point.y) <= 36.0 * density.density
+                        },
+                        onMarkerDrag = { point ->
+                            var current = selection.state.value.marker ?: return@functionGraphGestures
+                            if (current.dataGeneration != model.dataGeneration) {
+                                current = selection.onRenderModelChanged(model, current.contentRevision)
+                                    ?: return@functionGraphGestures
+                            }
+                            val index = current.segmentIndex ?: return@functionGraphGestures
+                            val latest = coordinator.state.value
+                            val hit = FunctionGraphMarkerDrag.hitOnSelectedSegment(
+                                model, current.slotId, index, point, latest.displayedViewport, plot
+                            ) ?: return@functionGraphGestures
+                            val moved = selection.moveMarker(hit, context())
+                            if (moved != null) requestEvaluation(moved, final = false)
+                        },
+                        onMarkerDragEnd = {
+                            selection.state.value.marker?.let { requestEvaluation(it, final = true) }
+                        }
                     ),
                     viewportGeneration = state.displayedViewportGeneration,
                     testTag = "function-graph-canvas-demo"
@@ -193,7 +307,7 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
 
 private object FunctionGraphCanvasDemoData {
     private val expressions = listOf(
-        "sin(x)", "0.5x^2-1", "exp(x/3)", "ln(x)", "1/x", "tan(x)"
+        "sin(x)", "0.5x^2-1", "exp(x/3)", "ln(x)", "1/x", "sin(x + 0.08)"
     )
     val content = FunctionGraphContentSnapshot(
         revision = 1,

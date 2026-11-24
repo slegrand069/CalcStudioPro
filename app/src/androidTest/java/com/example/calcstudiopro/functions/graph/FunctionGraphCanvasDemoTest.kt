@@ -7,6 +7,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toArgb
@@ -94,6 +96,34 @@ class FunctionGraphCanvasDemoTest {
         val contentDescription = canvas.fetchSemanticsNode().config[SemanticsProperties.ContentDescription].joinToString(" ")
         assertTrue(contentDescription.contains("f1:") && contentDescription.contains("f6:"))
         assertTrue(!contentDescription.contains("f1: masquée") && !contentDescription.contains("f6: masquée"))
+    }
+
+    @Test fun tappingCurvePublishesAccessibleSelection() {
+        val canvas = composeRule.onNodeWithTag("function-graph-canvas-demo")
+        composeRule.waitUntil(20_000) {
+            canvas.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+                .any { it.contains("Génération données 0") }
+        }
+        canvas.performTouchInput { click(center + Offset(20f, 0f)) }
+        composeRule.waitUntil(2_000) {
+            canvas.fetchSemanticsNode().config[SemanticsProperties.StateDescription].contains("sélection f")
+        }
+        assertTrue(viewportDescription().contains("sélection f"))
+    }
+
+    @Test fun doubleTapResetsAndRollsBackItsImmediateFirstTapSelection() {
+        val canvas = composeRule.onNodeWithTag("function-graph-canvas-demo")
+        composeRule.waitUntil(20_000) {
+            canvas.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+                .any { it.contains("Génération données 0") }
+        }
+        canvas.performTouchInput { doubleClick(center + Offset(20f, 0f)) }
+        composeRule.waitUntil(2_000) {
+            viewportDescription() == "X -10.0 à 10.0 ; Y -10.0 à 10.0"
+        }
+        assertEquals("X -10.0 à 10.0 ; Y -10.0 à 10.0", viewportDescription())
+        // With no earlier marker, the immediate first-tap selection is rolled back by double tap.
+        assertTrue(!canvas.fetchSemanticsNode().config[SemanticsProperties.StateDescription].contains("sélection f"))
     }
 
     @Test fun explicitBackLeavesTheDebugActivity() {
