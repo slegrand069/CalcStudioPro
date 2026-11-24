@@ -30,6 +30,44 @@ class FunctionGraphCanvasDemoTest {
         composeRule.onNodeWithTag("function-graph-canvas-demo").assertIsDisplayed()
         composeRule.onNodeWithTag("function-graph-demo-back").assertIsDisplayed()
         composeRule.onNodeWithTag("function-graph-demo-rotate").assertIsDisplayed()
+        composeRule.onNodeWithTag("function-graph-demo-fit").assertIsDisplayed()
+        composeRule.onNodeWithTag("function-graph-demo-orthonormalize").assertIsDisplayed()
+        composeRule.onNodeWithTag("function-graph-demo-reset").assertIsDisplayed()
+    }
+
+    @Test fun fitAndOrthonormalizeCommandsKeepTheCanvasAndResetRemainsSeparate() {
+        val canvas = composeRule.onNodeWithTag("function-graph-canvas-demo")
+        composeRule.waitUntil(20_000) {
+            canvas.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+                .any { it.contains("Génération données 0") }
+        }
+        composeRule.onNodeWithTag("function-graph-demo-fit").performClick()
+        composeRule.waitUntil(5_000) { viewportDescription().contains("Y") && viewportDescription() != "X -10.0 à 10.0 ; Y -10.0 à 10.0" }
+        composeRule.onNodeWithTag("function-graph-demo-orthonormalize").performClick()
+        composeRule.waitForIdle()
+        // A fitted viewport can already have equal pixel scales; orthonormalization may correctly
+        // be a no-op. The explicit Reset command must nevertheless remain independent.
+        assertTrue(viewportDescription().startsWith("X "))
+        composeRule.onNodeWithTag("function-graph-canvas-demo").assertIsDisplayed()
+        composeRule.onNodeWithTag("function-graph-demo-reset").performClick()
+        composeRule.waitForIdle()
+        assertEquals("Reset should restore the initial viewport", "X -10.0 à 10.0 ; Y -10.0 à 10.0", viewportDescription())
+    }
+
+    @Test fun resetCommandRestoresInitialViewportAfterPan() {
+        val canvas = composeRule.onNodeWithTag("function-graph-canvas-demo")
+        composeRule.waitUntil(20_000) {
+            canvas.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+                .any { it.contains("Génération données 0") }
+        }
+        canvas.performTouchInput {
+            down(center)
+            moveTo(center + Offset(40f, 30f), delayMillis = 180)
+            up()
+        }
+        assertTrue(viewportDescription() != "X -10.0 à 10.0 ; Y -10.0 à 10.0")
+        composeRule.onNodeWithTag("function-graph-demo-reset").performClick()
+        composeRule.waitUntil(2_000) { viewportDescription() == "X -10.0 à 10.0 ; Y -10.0 à 10.0" }
     }
 
     @Test fun rotationControlForcesBothOrientationsAndKeepsCanvas() {

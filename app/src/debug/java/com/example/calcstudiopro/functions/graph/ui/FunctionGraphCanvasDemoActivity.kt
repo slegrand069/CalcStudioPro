@@ -21,17 +21,22 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -43,6 +48,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.example.calcstudiopro.functions.domain.FunctionColorPalette
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.domain.functions.ExpressionCompilation
@@ -110,6 +118,8 @@ class FunctionGraphCanvasDemoActivity : ComponentActivity() {
 fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     val orientation = LocalConfiguration.current.orientation
+    val snackbarHostState = remember { SnackbarHostState() }
+    val screenScope = rememberCoroutineScope()
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = colors.surface,
@@ -143,7 +153,9 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                     actionIconContentColor = colors.onSurface
                 )
             )
-        }
+        },
+        // Keep transient feedback above the dedicated command strip so it cannot intercept taps.
+        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.padding(bottom = 48.dp)) }
     ) { contentInsets ->
         Column(
             Modifier.fillMaxSize().padding(contentInsets).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -154,8 +166,10 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                 val density = LocalDensity.current
                 val widthPx = with(density) { maxWidth.toPx() }
                 val heightPx = with(density) { maxHeight.toPx() }
-                val plot = remember(widthPx, heightPx, density.density) {
-                    functionPlotRectForCanvas(widthPx, heightPx, density.density.toDouble())
+                val controlHeightPx = with(density) { 48.dp.toPx() }
+                val canvasHeightPx = (heightPx - controlHeightPx).coerceAtLeast(1f)
+                val plot = remember(widthPx, canvasHeightPx, density.density) {
+                    functionPlotRectForCanvas(widthPx, canvasHeightPx, density.density.toDouble())
                 }
                 val scope = rememberCoroutineScope()
                 val selection = remember(density.density) {
@@ -191,9 +205,62 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                     coordinator.updatePlotSize(plot.width.toInt().coerceAtLeast(1), plot.height.toInt().coerceAtLeast(1))
                 }
                 val state by coordinator.state.collectAsState()
+                var fitIntent by remember(coordinator) { mutableStateOf<PendingFitIntent?>(null) }
+                var nextFitId by remember(coordinator) { mutableStateOf(0L) }
                 val displayed = rememberUpdatedState(state.displayedViewport)
                 val model = remember(state.available, content) {
                     FunctionGraphCanvasDemoData.renderModel(state.available?.batch)
+                }
+                LaunchedEffect(plot.width, plot.height) {
+                    if (fitIntent != null) {
+                        fitIntent = null
+                        snackbarHostState.showSnackbar("Ajustement annulé : dimensions du tracé modifiées")
+                    }
+                }
+                LaunchedEffect(fitIntent?.id, state.available?.batch?.generation) {
+                    val intent = fitIntent ?: return@LaunchedEffect
+                    val accepted = coordinator.state.value.available ?: return@LaunchedEffect
+                    if (accepted.contentRevision != intent.contentRevision ||
+                        accepted.request.plotWidthPixels != intent.widthPixels ||
+                        accepted.request.plotHeightPixels != intent.heightPixels ||
+                        accepted.request.xRange.minimum > intent.viewport.x.minimum ||
+                        accepted.request.xRange.maximum < intent.viewport.x.maximum
+                    ) return@LaunchedEffect
+                    val renderModel = FunctionGraphCanvasDemoData.renderModel(accepted.batch)
+                    if (renderModel.curves.filter { it.isVisible }.map { it.id }.toSet() != intent.visibleSlots) {
+                        fitIntent = null
+                        return@LaunchedEffect
+                    }
+                    val result = withContext(Dispatchers.Default) {
+                        com.example.calcstudiopro.functions.graph.interaction.FunctionGraphViewportFitter.fit(
+                            intent.viewport, accepted, renderModel, intent.contentRevision, intent.heightPixels
+                        )
+                    }
+                    val latest = coordinator.state.value
+                    val stillCurrent = fitIntent?.id == intent.id &&
+                        latest.displayedViewport == intent.viewport &&
+                        latest.available?.contentRevision == intent.contentRevision &&
+                        plot.width.toInt() == intent.widthPixels && plot.height.toInt() == intent.heightPixels &&
+                        model.curves.filter { it.isVisible }.map { it.id }.toSet() == intent.visibleSlots
+                    if (!stillCurrent) return@LaunchedEffect
+                    fitIntent = null
+                    when (result) {
+                        is com.example.calcstudiopro.functions.graph.interaction.FunctionGraphFitResult.Applied -> {
+                            selection.invalidateCycle()
+                            coordinator.updateDisplayedViewport(result.viewport)
+                            snackbarHostState.showSnackbar(
+                                if (result.usedPartialData) "Ajustement sur portions définies" else "Ajustement appliqué"
+                            )
+                        }
+                        is com.example.calcstudiopro.functions.graph.interaction.FunctionGraphFitResult.Rejected -> {
+                            val message = when (result.reason) {
+                                com.example.calcstudiopro.functions.graph.interaction.FunctionGraphFitResult.Reason.NO_DEFINED_PORTION -> "Aucune portion définie à ajuster"
+                                com.example.calcstudiopro.functions.graph.interaction.FunctionGraphFitResult.Reason.NUMERIC_LIMIT -> "Ajustement refusé : limite numérique"
+                                com.example.calcstudiopro.functions.graph.interaction.FunctionGraphFitResult.Reason.INCOMPATIBLE_BATCH -> "Ajustement annulé : données obsolètes"
+                            }
+                            snackbarHostState.showSnackbar(message)
+                        }
+                    }
                 }
                 LaunchedEffect(model, state.available?.contentRevision) {
                     selection.onRenderModelChanged(model, state.available?.contentRevision ?: content.revision)
@@ -218,6 +285,39 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                         )
                     }
                 }
+                fun requestFit() {
+                    val latest = coordinator.state.value
+                    nextFitId += 1L
+                    fitIntent = PendingFitIntent(
+                        id = nextFitId,
+                        contentRevision = content.revision,
+                        viewport = latest.displayedViewport,
+                        widthPixels = plot.width.toInt().coerceAtLeast(1),
+                        heightPixels = plot.height.toInt().coerceAtLeast(1),
+                        visibleSlots = model.curves.filter { it.isVisible }.map { it.id }.toSet()
+                    )
+                    screenScope.launch { snackbarHostState.showSnackbar("Ajustement en attente") }
+                    // This is a no-op when current work already covers this viewport; otherwise it
+                    // ensures one current-range batch is queued by the coordinator.
+                    coordinator.updateDisplayedViewport(latest.displayedViewport)
+                }
+                fun orthonormalize() {
+                    fitIntent = null
+                    val current = coordinator.state.value.displayedViewport
+                    when (val result = com.example.calcstudiopro.functions.graph.interaction.FunctionGraphViewportOrthonormalizer
+                        .orthonormalize(current, plot)) {
+                        is com.example.calcstudiopro.functions.graph.interaction.FunctionGraphOrthonormalizeResult.Applied -> {
+                            selection.invalidateCycle()
+                            coordinator.updateDisplayedViewport(result.viewport)
+                            screenScope.launch {
+                                snackbarHostState.showSnackbar(if (result.alreadyOrthonormal) "Déjà orthonormé" else "Orthonormé")
+                            }
+                        }
+                        com.example.calcstudiopro.functions.graph.interaction.FunctionGraphOrthonormalizeResult.Rejected -> {
+                            screenScope.launch { snackbarHostState.showSnackbar("Orthonormalisation refusée : limite numérique") }
+                        }
+                    }
+                }
                 fun requestEvaluation(markerState: com.example.calcstudiopro.functions.graph.interaction.FunctionGraphMarkerState, final: Boolean) {
                     val accepted = coordinator.state.value.available ?: return
                     if (accepted.contentRevision != markerState.contentRevision) return
@@ -240,10 +340,11 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                     curveViewport = curveViewport,
                     gridMode = FunctionGridMode.MAJOR_AND_MINOR,
                     marker = marker,
-                    modifier = Modifier.fillMaxSize().functionGraphGestures(
+                    modifier = Modifier.fillMaxSize().padding(bottom = 48.dp).functionGraphGestures(
                         viewport = { displayed.value },
                         plot = plot,
                         onViewportChange = { viewport ->
+                            fitIntent = null
                             coordinator.updateDisplayedViewport(viewport)
                             selection.invalidateCycle()
                         },
@@ -262,6 +363,7 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                             if (chosen != null) requestEvaluation(chosen, final = false)
                         },
                         onDoubleTap = {
+                            fitIntent = null
                             evaluationCoordinator.invalidate()
                             selection.rollbackPendingTapForDoubleTap()
                             selection.invalidateCycle()
@@ -300,10 +402,33 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
                     viewportGeneration = state.displayedViewportGeneration,
                     testTag = "function-graph-canvas-demo"
                 )
+                androidx.compose.foundation.layout.Row(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = { requestFit() }, modifier = Modifier.testTag("function-graph-demo-fit")) { Text("Ajuster") }
+                    TextButton(onClick = { orthonormalize() }, modifier = Modifier.testTag("function-graph-demo-orthonormalize")) { Text("Orthonormer") }
+                    TextButton(onClick = {
+                        fitIntent = null
+                        selection.invalidateCycle()
+                        coordinator.resetViewport()
+                        screenScope.launch { snackbarHostState.showSnackbar("Cadrage réinitialisé") }
+                    }, modifier = Modifier.testTag("function-graph-demo-reset")) { Text("Réinitialiser") }
+                }
             }
         }
     }
 }
+
+private data class PendingFitIntent(
+    val id: Long,
+    val contentRevision: Long,
+    val viewport: GraphViewport,
+    val widthPixels: Int,
+    val heightPixels: Int,
+    val visibleSlots: Set<FunctionSlotId>
+)
 
 private object FunctionGraphCanvasDemoData {
     private val expressions = listOf(
