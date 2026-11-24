@@ -8,9 +8,13 @@ import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -124,6 +128,82 @@ class FunctionGraphCalculationCoordinatorTest {
             assertEquals(700, fixture.requests.last().plotWidthPixels)
             assertEquals(320, fixture.requests.last().plotHeightPixels)
         } finally { fixture.close() }
+    }
+
+    @Test fun delayedCancellationKeepsOneReplaceablePendingViewportAndAcceptsOnlyTheLatest() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val scheduler = FakeScheduler()
+        val requests = mutableListOf<FunctionGraphRequest>()
+        val gate = CompletableDeferred<Unit>()
+        val latestDeferred = CompletableDeferred<FunctionGraphCalculationOutcome>()
+        val coordinator = FunctionGraphCalculationCoordinator(
+            scope = scope,
+            initialContent = FunctionGraphContentSnapshot(1, emptyList()),
+            initialPlotWidthPixels = 400,
+            initialPlotHeightPixels = 240,
+            scheduler = scheduler,
+            submitCalculation = { request ->
+                requests += request
+                if (requests.size == 1) scope.async(start = CoroutineStart.UNDISPATCHED) {
+                    withContext(NonCancellable) { gate.await() }
+                    completed(request)
+                } else latestDeferred
+            }
+        )
+        try {
+            coordinator.beginGesture()
+            repeat(20) { coordinator.updateDisplayedViewport(viewport(it.toDouble())) }
+            val finalViewport = viewport(21.0)
+            coordinator.updateDisplayedViewport(finalViewport)
+            coordinator.endGesture()
+
+            assertEquals("Cancellation must not submit parallel work while the old job is still unwinding.", 1, requests.size)
+            assertEquals(finalViewport, coordinator.state.value.pending?.viewport)
+
+            gate.complete(Unit)
+            assertEquals(2, requests.size)
+            assertEquals(finalViewport.x, requests.last().xRange)
+            assertEquals(finalViewport.y, requests.last().yRange)
+
+            latestDeferred.complete(completed(requests.last()))
+            assertEquals(requests.last().generation, coordinator.state.value.available?.batch?.generation)
+        } finally { coordinator.close(); scope.cancel() }
+    }
+
+    @Test fun contentRevisionChangeDuringDelayedCancellationCannotPublishTheOldBatch() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val scheduler = FakeScheduler()
+        val requests = mutableListOf<FunctionGraphRequest>()
+        val gate = CompletableDeferred<Unit>()
+        val currentDeferred = CompletableDeferred<FunctionGraphCalculationOutcome>()
+        val coordinator = FunctionGraphCalculationCoordinator(
+            scope = scope,
+            initialContent = FunctionGraphContentSnapshot(1, emptyList()),
+            initialPlotWidthPixels = 400,
+            initialPlotHeightPixels = 240,
+            scheduler = scheduler,
+            submitCalculation = { request ->
+                requests += request
+                if (requests.size == 1) scope.async(start = CoroutineStart.UNDISPATCHED) {
+                    withContext(NonCancellable) { gate.await() }
+                    completed(request)
+                } else currentDeferred
+            }
+        )
+        try {
+            coordinator.updateContent(FunctionGraphContentSnapshot(2, emptyList(), mapOf('a' to 5.0)))
+            assertNull(coordinator.state.value.available)
+            assertEquals(1, requests.size)
+
+            gate.complete(Unit)
+            assertEquals(2, requests.size)
+            assertEquals(mapOf('a' to 5.0), requests.last().parameters)
+            assertNull("The completion of the cancelled generation must not be published.", coordinator.state.value.available)
+
+            currentDeferred.complete(completed(requests.last()))
+            assertEquals(2L, coordinator.state.value.available?.contentRevision)
+            assertEquals(requests.last().generation, coordinator.state.value.available?.batch?.generation)
+        } finally { coordinator.close(); scope.cancel() }
     }
 
     private class Fixture {

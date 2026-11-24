@@ -180,6 +180,21 @@ class FunctionGraphGeometryTest {
         }
     }
 
+    @Test fun finiteEndpointsWhoseDifferenceOverflowsAreClippedOrOmittedSafely() {
+        val geometry = build(
+            model = modelWithSegments(listOf(listOf(
+                FunctionGraphPoint(-Double.MAX_VALUE, -0.5),
+                FunctionGraphPoint(Double.MAX_VALUE, 0.5)
+            ))),
+            viewport = GraphViewport(AxisRange(-1.0, 1.0), AxisRange(-1.0, 1.0))
+        )
+        assertFiniteCanvasPoints(geometry)
+        geometry.curves.flatMap { it.segments }.flatten().forEach {
+            assertTrue(it.x in 25.0..425.0)
+            assertTrue(it.y in 30.0..310.0)
+        }
+    }
+
     @Test fun contrastOutlineIsDeterministicAndDoesNotChangeSavedColor() {
         val navy = FunctionColor.NAVY.argb
         val darkBackground = 0xFF07111DL

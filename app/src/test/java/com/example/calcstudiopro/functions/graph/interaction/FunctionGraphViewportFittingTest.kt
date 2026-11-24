@@ -103,6 +103,30 @@ class FunctionGraphViewportFittingTest {
         )
     }
 
+    @Test fun sixVisibleSlotsWithDifferentAmplitudesProduceFiniteFittingRange() {
+        val baseViewport = viewport()
+        val request = FunctionGraphRequest(10, AxisRange(-2.0, 2.0), AxisRange(-1e7, 1e7), 400, 300,
+            FunctionSlotId.ordered.map { FunctionGraphInput(it) }, angleMode = FunctionAngleMode.RAD)
+        val diagnostics = FunctionGraphDiagnostics(12, 0, 0, 0)
+        val results = FunctionSlotId.ordered.mapIndexed { index, id ->
+            val amplitude = Math.pow(10.0, index.toDouble())
+            FunctionGraphResult(id, listOf(segment(-2.0, amplitude, 2.0, amplitude)), FunctionGraphStatus.Success, diagnostics)
+        }
+        val batch = FunctionGraphBatchResult(10, results, 12)
+        val accepted = FunctionGraphAcceptedResult(3, request, batch)
+        val study = com.example.calcstudiopro.functions.domain.FunctionStudy.newWorkingSession()
+        val model = FunctionGraphRenderModel(10, FunctionSlotId.ordered.mapIndexed { index, id ->
+            FunctionCurveRenderModel(id, study.slot(id).color, true, results[index].segments, FunctionGraphStatus.Success, diagnostics)
+        })
+
+        val fit = FunctionGraphViewportFitter.fit(baseViewport, accepted, model, 3, 300) as FunctionGraphFitResult.Applied
+        assertEquals(baseViewport.x, fit.viewport.x)
+        assertEquals(FunctionSlotId.ordered.toSet(), fit.includedSlots)
+        assertTrue(fit.viewport.y.minimum.isFinite() && fit.viewport.y.maximum.isFinite())
+        assertTrue(fit.viewport.y.minimum < 1.0 && fit.viewport.y.maximum > 100_000.0)
+        assertTrue(FunctionGraphViewportController.isSafe(fit.viewport.y, 300))
+    }
+
     @Test fun orthonormalizationUsesActualPlotAndOnlyExpandsOneAxis() {
         val plot = PlotRect(10.0, 20.0, 200.0, 100.0)
         val original = GraphViewport(AxisRange(-5.0, 5.0), AxisRange(-5.0, 5.0))

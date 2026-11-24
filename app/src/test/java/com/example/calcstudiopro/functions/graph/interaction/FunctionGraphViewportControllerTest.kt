@@ -7,6 +7,7 @@ import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.statistics.graph.model.PlotRect
 import com.example.calcstudiopro.statistics.graph.model.ScreenPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -97,5 +98,29 @@ class FunctionGraphViewportControllerTest {
         val returned = FunctionGraphViewportController.pan(moved, -35.0, 22.0, plot)
         assertTrue(abs(returned.x.minimum - start.x.minimum) < 1e-12)
         assertTrue(abs(returned.y.maximum - start.y.maximum) < 1e-12)
+    }
+
+    @Test fun finiteEndpointsWithAnOverflowingSpanAreRefusedWithoutCreatingInvalidViewport() {
+        val extreme = GraphViewport(
+            AxisRange(-Double.MAX_VALUE, Double.MAX_VALUE),
+            AxisRange(-Double.MAX_VALUE, Double.MAX_VALUE)
+        )
+        val center = ScreenPoint(plot.left + plot.width / 2.0, plot.top + plot.height / 2.0)
+        val zoomed = FunctionGraphViewportController.transform(extreme, center, center, 2.0, plot)
+        assertEquals(extreme, zoomed)
+        val panned = FunctionGraphViewportController.pan(extreme, 12.0, -7.0, plot)
+        assertEquals(extreme, panned)
+        assertTrue(zoomed.x.minimum.isFinite() && zoomed.x.maximum.isFinite())
+        assertTrue(zoomed.y.minimum.isFinite() && zoomed.y.maximum.isFinite())
+    }
+
+    @Test fun ulpGuardAtTheLargestFiniteCenterRefusesUnrepresentableZoom() {
+        val maximum = Double.MAX_VALUE
+        val nearMaximum = AxisRange(Math.nextDown(maximum), maximum)
+        assertFalse(FunctionGraphViewportController.isSafe(nearMaximum, 400))
+        val viewport = GraphViewport(nearMaximum, AxisRange(-1.0, 1.0))
+        val center = ScreenPoint(plot.left + plot.width / 2.0, plot.top + plot.height / 2.0)
+        val result = FunctionGraphViewportController.transform(viewport, center, center, 4.0, plot)
+        assertEquals(viewport, result)
     }
 }
