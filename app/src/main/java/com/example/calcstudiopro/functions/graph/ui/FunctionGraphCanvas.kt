@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -29,6 +30,7 @@ import com.example.calcstudiopro.functions.graph.render.FunctionGraphGeometryBui
 import com.example.calcstudiopro.functions.graph.render.FunctionGraphGeometryRequest
 import com.example.calcstudiopro.functions.graph.render.FunctionGraphRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGridMode
+import com.example.calcstudiopro.functions.graph.render.FunctionGraphPathTransform
 import com.example.calcstudiopro.functions.graph.render.drawFunctionGraph
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.statistics.graph.model.PlotRect
@@ -42,6 +44,8 @@ import kotlin.math.max
 fun FunctionGraphCanvas(
     model: FunctionGraphRenderModel,
     viewport: GraphViewport,
+    /** Viewport used by the available result; the paths are transformed while [viewport] moves. */
+    curveViewport: GraphViewport = viewport,
     gridMode: FunctionGridMode = FunctionGridMode.MAJOR,
     modifier: Modifier = Modifier.fillMaxWidth().height(320.dp),
     viewportGeneration: Long = 0L,
@@ -67,12 +71,23 @@ fun FunctionGraphCanvas(
                     gridMode = gridMode,
                     backgroundArgb = canvasBackgroundArgb,
                     viewportGeneration = viewportGeneration
-                )
+                ),
+                projectCurves = false
             )
         }
 
-        val curvePaths = remember(geometry) {
-            geometry.curves.map { curve ->
+        // Paths are rebuilt only when the available data, its sampling viewport, plot size, or theme changes.
+        val curveGeometry = remember(model, curveViewport, canvasBackgroundArgb, plot) {
+            FunctionGraphGeometryBuilder.build(
+                FunctionGraphGeometryRequest(model, curveViewport, plot, FunctionGridMode.NONE, canvasBackgroundArgb, model.dataGeneration ?: 0L)
+            )
+        }
+        val pathTransform = remember(curveViewport, viewport, curveGeometry.plot, plot) {
+            FunctionGraphPathTransform.between(curveViewport, viewport, curveGeometry.plot, plot)
+        }
+
+        val curvePaths = remember(curveGeometry) {
+            curveGeometry.curves.map { curve ->
                 if (!curve.isVisible) emptyList() else curve.segments.map { points ->
                     val path = Path()
                     points.forEachIndexed { index, point ->
@@ -111,6 +126,7 @@ fun FunctionGraphCanvas(
         Canvas(
             modifier = Modifier.fillMaxSize().testTag(testTag).semantics {
                 contentDescription = "Graphe de fonctions. Génération données ${model.dataGeneration ?: "aucune"}. $visibleStatus"
+                stateDescription = "X ${viewport.x.minimum} à ${viewport.x.maximum} ; Y ${viewport.y.minimum} à ${viewport.y.maximum}"
             }
         ) {
             drawFunctionGraph(
@@ -122,13 +138,14 @@ fun FunctionGraphCanvas(
                 axisColor = colors.onSurface,
                 majorGridColor = colors.outlineVariant.copy(alpha = 0.32f),
                 minorGridColor = colors.outlineVariant.copy(alpha = 0.14f),
-                labelColor = colors.onSurface
+                labelColor = colors.onSurface,
+                pathTransform = pathTransform
             )
         }
     }
 }
 
-private fun functionPlotRectForCanvas(width: Float, height: Float, density: Double): PlotRect {
+internal fun functionPlotRectForCanvas(width: Float, height: Float, density: Double): PlotRect {
     val left = 56.0 * density
     val right = 12.0 * density
     val top = 12.0 * density

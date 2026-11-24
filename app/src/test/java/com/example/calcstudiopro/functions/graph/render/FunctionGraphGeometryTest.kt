@@ -77,6 +77,43 @@ class FunctionGraphGeometryTest {
         assertTrue((geometry.xTicks + geometry.yTicks).all { it.label.isNotBlank() })
     }
 
+    @Test fun floatingPointResiduesAtZeroAreNormalizedRelativeToTickSpacing() {
+        val range = AxisRange(-10.0, 10.0)
+        listOf(5.55112e-16, 2.64865e-16, -2.37399e-15).forEach { residue ->
+            val normalized = FunctionGraphTickNormalizer.normalizeValue(residue, step = 5.0, range = range)
+            assertEquals(0.0, normalized, 0.0)
+            assertEquals(0L, java.lang.Double.doubleToRawLongBits(normalized))
+        }
+    }
+
+    @Test fun genuineSmallTickValuesSurviveSmallAndExtremeZoomRanges() {
+        val verySmallRange = AxisRange(-1e-15, 1e-15)
+        val verySmallTick = 5e-16
+        assertEquals(
+            verySmallTick,
+            FunctionGraphTickNormalizer.normalizeValue(verySmallTick, step = 5e-16, range = verySmallRange),
+            0.0
+        )
+
+        val zoomedRange = AxisRange(-5e-10, 5e-10)
+        val zoomedTick = 1e-10
+        assertEquals(
+            zoomedTick,
+            FunctionGraphTickNormalizer.normalizeValue(zoomedTick, step = 2.5e-10, range = zoomedRange),
+            0.0
+        )
+    }
+
+    @Test fun zeroTickLabelAndPositionCoincideWithMathematicalAxes() {
+        val geometry = build(viewport = GraphViewport(AxisRange(-10.0, 10.0), AxisRange(-10.0, 10.0)))
+        val xZero = geometry.xTicks.single { it.value == 0.0 }
+        val yZero = geometry.yTicks.single { it.value == 0.0 }
+        assertEquals("0", xZero.label)
+        assertEquals("0", yZero.label)
+        assertEquals(geometry.verticalAxis!!.start.x, xZero.position.x, 0.0)
+        assertEquals(geometry.horizontalAxis!!.start.y, yZero.position.y, 0.0)
+    }
+
     @Test fun geometryCanBeRebuiltForPortraitAndLandscapeWithoutChangingMathData() {
         val model = modelWithCurve()
         val pointsBefore = model.curves.first().segments.first().points.toList()

@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,11 +25,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -36,20 +45,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.calcstudiopro.functions.domain.FunctionColorPalette
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
-import com.example.calcstudiopro.functions.graph.FunctionGraphDiagnostics
-import com.example.calcstudiopro.functions.graph.FunctionGraphPoint
-import com.example.calcstudiopro.functions.graph.FunctionGraphSegment
+import com.example.calcstudiopro.domain.functions.ExpressionCompilation
+import com.example.calcstudiopro.domain.functions.MathExpressionEngine
+import com.example.calcstudiopro.functions.graph.FunctionGraphInput
+import com.example.calcstudiopro.functions.graph.FunctionGraphCalculator
 import com.example.calcstudiopro.functions.graph.FunctionGraphStatus
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphCalculationCoordinator
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphContentSnapshot
+import com.example.calcstudiopro.functions.graph.interaction.FunctionGraphViewportController
 import com.example.calcstudiopro.functions.graph.render.FunctionCurveRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGraphRenderModel
 import com.example.calcstudiopro.functions.graph.render.FunctionGridMode
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
-import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.ln
-import kotlin.math.sin
+import com.example.calcstudiopro.functions.graph.interaction.functionGraphGestures
 
 /** Debug-only, explicit-ADB preview. It is not connected to app navigation. */
 class FunctionGraphCanvasDemoActivity : ComponentActivity() {
@@ -129,54 +139,85 @@ fun FunctionGraphCanvasDemo(onBack: () -> Unit = {}, onToggleOrientation: () -> 
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            FunctionGraphCanvas(
-                model = FunctionGraphCanvasDemoData.model,
-                viewport = FunctionGraphCanvasDemoData.viewport,
-                gridMode = FunctionGridMode.MAJOR_AND_MINOR,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                viewportGeneration = 1,
-                testTag = "function-graph-canvas-demo"
-            )
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val density = LocalDensity.current
+                val widthPx = with(density) { maxWidth.toPx() }
+                val heightPx = with(density) { maxHeight.toPx() }
+                val plot = remember(widthPx, heightPx, density.density) {
+                    functionPlotRectForCanvas(widthPx, heightPx, density.density.toDouble())
+                }
+                val scope = rememberCoroutineScope()
+                val content = remember { FunctionGraphCanvasDemoData.content }
+                val coordinator = remember(scope, content) {
+                    FunctionGraphCalculationCoordinator(
+                        scope = scope,
+                        initialContent = content,
+                        initialViewport = FunctionGraphViewportController.INITIAL,
+                        initialPlotWidthPixels = plot.width.toInt().coerceAtLeast(1),
+                        initialPlotHeightPixels = plot.height.toInt().coerceAtLeast(1),
+                        calculator = FunctionGraphCalculator(scope)
+                    )
+                }
+                DisposableEffect(coordinator) { onDispose { coordinator.close() } }
+                LaunchedEffect(coordinator, plot.width, plot.height) {
+                    coordinator.updatePlotSize(plot.width.toInt().coerceAtLeast(1), plot.height.toInt().coerceAtLeast(1))
+                }
+                val state by coordinator.state.collectAsState()
+                val displayed = rememberUpdatedState(state.displayedViewport)
+                val model = remember(state.available, content) {
+                    FunctionGraphCanvasDemoData.renderModel(state.available?.batch)
+                }
+                val curveViewport = state.available?.request?.let {
+                    com.example.calcstudiopro.statistics.graph.model.GraphViewport(it.xRange, it.yRange)
+                } ?: FunctionGraphViewportController.INITIAL
+                FunctionGraphCanvas(
+                    model = model,
+                    viewport = state.displayedViewport,
+                    curveViewport = curveViewport,
+                    gridMode = FunctionGridMode.MAJOR_AND_MINOR,
+                    modifier = Modifier.fillMaxSize().functionGraphGestures(
+                        viewport = { displayed.value },
+                        plot = plot,
+                        onViewportChange = coordinator::updateDisplayedViewport,
+                        onGestureStart = coordinator::beginGesture,
+                        onGestureEnd = coordinator::endGesture,
+                        onDoubleTap = coordinator::resetViewport
+                    ),
+                    viewportGeneration = state.displayedViewportGeneration,
+                    testTag = "function-graph-canvas-demo"
+                )
+            }
         }
     }
 }
 
 private object FunctionGraphCanvasDemoData {
-    val viewport = GraphViewport(AxisRange(-4.0, 4.0), AxisRange(-3.0, 4.0))
-    private val diagnostics = FunctionGraphDiagnostics(321, 28, 4, 1)
-    val model: FunctionGraphRenderModel = run {
-        val functions: Map<FunctionSlotId, Pair<Boolean, List<FunctionGraphSegment>>> = mapOf(
-            FunctionSlotId.F1 to (true to listOf(sample(-4.0, 4.0, 0.04) { sin(it) })),
-            FunctionSlotId.F2 to (true to listOf(sample(-3.0, 3.0, 0.04) { 0.5 * it * it - 1.0 })),
-            FunctionSlotId.F3 to (true to listOf(sample(-4.0, 1.35, 0.04) { exp(it) })),
-            FunctionSlotId.F4 to (true to listOf(sample(0.08, 4.0, 0.04) { ln(it) })),
-            FunctionSlotId.F5 to (true to listOf(
-                sample(-4.0, -0.18, 0.04) { 1.0 / it },
-                sample(0.18, 4.0, 0.04) { 1.0 / it }
-            )),
-            FunctionSlotId.F6 to (false to listOf(sample(-4.0, 4.0, 0.04) { cos(2.0 * it) }))
-        )
-        FunctionGraphRenderModel(
-            dataGeneration = 1,
-            curves = FunctionSlotId.ordered.map { id ->
-                val (visible, segments) = functions.getValue(id)
-                FunctionCurveRenderModel(
-                    id = id,
-                    color = FunctionColorPalette.defaultFor(id),
-                    isVisible = visible,
-                    segments = segments,
-                    status = FunctionGraphStatus.Success,
-                    diagnostics = diagnostics
-                )
+    private val expressions = listOf(
+        "sin(x)", "0.5x^2-1", "exp(x/3)", "ln(x)", "1/x", "tan(x)"
+    )
+    val content = FunctionGraphContentSnapshot(
+        revision = 1,
+        functions = FunctionSlotId.ordered.zip(expressions).map { (id, source) ->
+            when (val compiled = MathExpressionEngine().compile(source)) {
+                is ExpressionCompilation.Success -> FunctionGraphInput(id, expression = compiled.expression)
+                is ExpressionCompilation.Failure -> FunctionGraphInput(id, compilationError = compiled.error)
             }
-        )
-    }
+        }
+    )
 
-    private fun sample(start: Double, end: Double, step: Double, function: (Double) -> Double): FunctionGraphSegment {
-        val count = ((end - start) / step).toInt()
-        return FunctionGraphSegment((0..count).map { index ->
-            val x = if (index == count) end else start + index * step
-            FunctionGraphPoint(x, function(x))
+    fun renderModel(batch: com.example.calcstudiopro.functions.graph.FunctionGraphBatchResult?): FunctionGraphRenderModel {
+        val results = batch?.results?.associateBy { it.id }.orEmpty()
+        return FunctionGraphRenderModel(batch?.generation, FunctionSlotId.ordered.mapIndexed { index, id ->
+            val result = results[id]
+            val compilationError = (content.functions[index].compilationError)
+            FunctionCurveRenderModel(
+                id = id,
+                color = FunctionColorPalette.defaultFor(id),
+                isVisible = true,
+                segments = result?.segments.orEmpty(),
+                status = result?.status ?: compilationError?.let(FunctionGraphStatus::Error),
+                diagnostics = result?.diagnostics
+            )
         })
     }
 }

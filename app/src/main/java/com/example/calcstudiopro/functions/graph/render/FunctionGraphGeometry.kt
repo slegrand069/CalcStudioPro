@@ -1,6 +1,7 @@
 package com.example.calcstudiopro.functions.graph.render
 
 import com.example.calcstudiopro.functions.graph.FunctionGraphPoint
+import com.example.calcstudiopro.statistics.graph.domain.AxisTick
 import com.example.calcstudiopro.statistics.graph.domain.GraphTicks
 import com.example.calcstudiopro.statistics.graph.domain.GraphTransform
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
@@ -81,14 +82,14 @@ object FunctionGraphGeometryBuilder {
     private const val MINOR_DIVISIONS = 4
     private const val MAX_MINOR_LINES_PER_AXIS = (MAX_TICK_COUNT - 1) * (MINOR_DIVISIONS - 1)
 
-    fun build(request: FunctionGraphGeometryRequest): FunctionGraphGeometry {
+    fun build(request: FunctionGraphGeometryRequest, projectCurves: Boolean = true): FunctionGraphGeometry {
         val transform = GraphTransform(request.viewport, request.plot)
         val xTarget = (request.plot.width / X_PIXELS_PER_TICK).toInt().coerceIn(2, 12)
         val yTarget = (request.plot.height / Y_PIXELS_PER_TICK).toInt().coerceIn(2, 10)
-        val xTicks = GraphTicks.calculate(request.viewport.x, xTarget).map { tick ->
+        val xTicks = FunctionGraphTickNormalizer.normalize(GraphTicks.calculate(request.viewport.x, xTarget), request.viewport.x).map { tick ->
             FunctionGraphTickGeometry(tick.value, tick.label, transform.dataToScreen(DataPoint(tick.value, request.viewport.y.minimum)))
         }
-        val yTicks = GraphTicks.calculate(request.viewport.y, yTarget).map { tick ->
+        val yTicks = FunctionGraphTickNormalizer.normalize(GraphTicks.calculate(request.viewport.y, yTarget), request.viewport.y).map { tick ->
             FunctionGraphTickGeometry(tick.value, tick.label, transform.dataToScreen(DataPoint(request.viewport.x.minimum, tick.value)))
         }
         val vertical = if (request.viewport.x.minimum <= 0.0 && request.viewport.x.maximum >= 0.0) {
@@ -107,7 +108,7 @@ object FunctionGraphGeometryBuilder {
         val curves = request.model.curves.map { curve ->
             val color = curve.color.argb
             val outline = FunctionCurveContrastPolicy.outlineFor(color, request.backgroundArgb)
-            val projected = if (curve.isVisible) curve.segments.flatMap { segment ->
+            val projected = if (projectCurves && curve.isVisible) curve.segments.flatMap { segment ->
                 projectAndClipSegment(segment.points, request.viewport, request.plot)
             } else emptyList()
             FunctionCurveGeometry(curve.id, color, outline, curve.isVisible, curve.status, curve.diagnostics, projected)
@@ -336,6 +337,46 @@ object FunctionGraphGeometryBuilder {
 
     private const val FAST_CLIP_LIMIT = 1_000_000.0
     private val CLIP_MATH_CONTEXT = MathContext(700, RoundingMode.HALF_EVEN)
+}
+
+/** Normalizes only floating-point noise around the mathematical zero tick. */
+internal object FunctionGraphTickNormalizer {
+    private const val STEP_RELATIVE_TOLERANCE = 1e-12
+    private const val RANGE_ULP_TOLERANCE = 4.0
+
+    fun normalize(ticks: List<AxisTick>, range: AxisRange): List<AxisTick> {
+        if (ticks.isEmpty()) return ticks
+        val step = estimateStep(ticks.map(AxisTick::value), range)
+        val normalized = ticks.map { tick ->
+            val value = normalizeValue(tick.value, step, range)
+            AxisTick(value, GraphTicks.format(value))
+        }
+        return normalized.distinctBy(AxisTick::value)
+    }
+
+    /** Exposed internally for focused numerical tests; [step] is the local major-tick spacing. */
+    fun normalizeValue(value: Double, step: Double, range: AxisRange): Double {
+        if (!value.isFinite() || !step.isFinite() || step <= 0.0) return value
+        val rangeScale = max(abs(range.minimum), abs(range.maximum))
+        val tolerance = max(step * STEP_RELATIVE_TOLERANCE, Math.ulp(rangeScale) * RANGE_ULP_TOLERANCE)
+        return if (abs(value) <= tolerance) 0.0 else value
+    }
+
+    private fun estimateStep(values: List<Double>, range: AxisRange): Double {
+        val gaps = values.asSequence()
+            .filter(Double::isFinite)
+            .sorted()
+            .zipWithNext { a, b -> b - a }
+            .filter { it.isFinite() && it > 0.0 }
+            .sorted()
+            .toList()
+        if (gaps.isNotEmpty()) {
+            val middle = gaps.size / 2
+            return if (gaps.size % 2 == 1) gaps[middle] else gaps[middle - 1] / 2.0 + gaps[middle] / 2.0
+        }
+        val span = range.maximum / 2.0 - range.minimum / 2.0
+        return if (span.isFinite() && span > 0.0) span else max(abs(range.minimum), abs(range.maximum)) / 6.0
+    }
 }
 
 /** Adds a black or white presentation-only halo when the saved curve color lacks 3:1 contrast. */
