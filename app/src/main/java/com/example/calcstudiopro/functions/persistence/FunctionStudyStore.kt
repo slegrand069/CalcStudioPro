@@ -204,7 +204,6 @@ class FunctionStudyStore private constructor(
         val existing = readRevisionOrNull(path)
         if (existing != null) {
             val old = existing
-            if (old.studyId != study.id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Working session ID changed")
             requireKind(old, FunctionStudyKind.WORKING_SESSION)
             restore(old)
             if (old != study.revision()) {
@@ -276,22 +275,35 @@ class FunctionStudyStore private constructor(
         }
     }
 
-    fun renameNamedStudy(id: FunctionStudyId, newName: String): StudyStoreResult<Unit> = guarded {
+    fun renameNamedStudy(
+        id: FunctionStudyId,
+        newName: String,
+        expectedRevision: FunctionStudyRevision? = null
+    ): StudyStoreResult<Unit> = guarded {
         if (newName.isBlank()) fault(StudyStoreError.INVALID_STUDY, "Named studies require a non-blank name")
         val path = namedPath(id)
         val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
         requireKind(old, FunctionStudyKind.NAMED_STUDY)
         if (old.studyId != id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Study ID does not match stored record")
+        if (expectedRevision != null && old != expectedRevision) {
+            fault(StudyStoreError.CONCURRENT_MODIFICATION, "Named study changed since the expected revision")
+        }
         restore(old)
         val renamed = old.copyWithName(newName)
         atomicWriter.write(path, FunctionStudyCodec.encode(renamed))
     }
 
-    fun deleteNamedStudy(id: FunctionStudyId): StudyStoreResult<Unit> = guarded {
+    fun deleteNamedStudy(
+        id: FunctionStudyId,
+        expectedRevision: FunctionStudyRevision? = null
+    ): StudyStoreResult<Unit> = guarded {
         val path = namedPath(id)
         val old = readRevisionOrNull(path) ?: fault(StudyStoreError.NOT_FOUND, "Named study not found")
         requireKind(old, FunctionStudyKind.NAMED_STUDY)
         if (old.studyId != id) fault(StudyStoreError.STUDY_ID_MISMATCH, "Study ID does not match stored record")
+        if (expectedRevision != null && old != expectedRevision) {
+            fault(StudyStoreError.CONCURRENT_MODIFICATION, "Named study changed since the expected revision")
+        }
         restore(old)
         if (!Files.deleteIfExists(path)) fault(StudyStoreError.NOT_FOUND, "Named study not found")
     }

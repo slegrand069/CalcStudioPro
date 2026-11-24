@@ -68,6 +68,7 @@ import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
 import com.example.calcstudiopro.functions.FunctionStudyRoute
 import com.example.calcstudiopro.functions.FunctionStudyViewModel
 import com.example.calcstudiopro.functions.FunctionExpressionEditorRoute
+import com.example.calcstudiopro.functions.FunctionStudyManagementRoute
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.statistics.graph.ui.GraphDemoScreen
@@ -199,7 +200,14 @@ class MainActivity : ComponentActivity() {
                             FunctionStudyRoute(
                                 functionStudyViewModel,
                                 onBack = { navController.popBackStack() },
+                                onOpenStudies = { navController.navigate("functions/studies") },
                                 onOpenEditor = { slotId -> navController.navigate("functions/edit/${slotId.code}") }
+                            )
+                        }
+                        composable("functions/studies") {
+                            FunctionStudyManagementRoute(
+                                functionStudyViewModel,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable(

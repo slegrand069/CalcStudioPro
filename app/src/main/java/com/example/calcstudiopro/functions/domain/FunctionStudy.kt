@@ -256,6 +256,11 @@ class FunctionStudyRevision internal constructor(
     val slots: List<FunctionSlotRevision> = Collections.unmodifiableList(slots.toList())
     val parameters: Map<Char, Double> = Collections.unmodifiableMap(LinkedHashMap(parameters))
 
+    fun withKind(kind: FunctionStudyKind, name: String? = this.name): FunctionStudyRevision {
+        require(kind != FunctionStudyKind.NAMED_STUDY || !name.isNullOrBlank())
+        return FunctionStudyRevision(studyId, kind, name, slots, parameters, angleMode)
+    }
+
     override fun equals(other: Any?): Boolean = other is FunctionStudyRevision &&
         studyId == other.studyId && kind == other.kind && name == other.name &&
         slots == other.slots && parameters == other.parameters && angleMode == other.angleMode
@@ -297,6 +302,22 @@ class FunctionStudy private constructor(
 
     fun withAngleMode(mode: FunctionAngleMode): FunctionStudy =
         FunctionStudy(id, kind, name, slots, parameters, mode)
+
+    /** Returns an in-memory working copy while preserving every user-editable value and the stable ID. */
+    fun asWorkingSession(
+        id: FunctionStudyId = this.id,
+        name: String? = this.name
+    ): FunctionStudy = FunctionStudy(id, FunctionStudyKind.WORKING_SESSION, name, slots, parameters, angleMode)
+
+    /** Creates the durable named-study form of the current working snapshot. */
+    fun asNamedStudy(name: String, id: FunctionStudyId = this.id): FunctionStudy {
+        require(name.isNotBlank()) { "Named studies require a name" }
+        return FunctionStudy(id, FunctionStudyKind.NAMED_STUDY, name, slots, parameters, angleMode)
+    }
+
+    /** Creates a recovery snapshot without changing the active immutable study. */
+    fun asRecoverySession(): FunctionStudy =
+        FunctionStudy(id, FunctionStudyKind.RECOVERY_SESSION, name, slots, parameters, angleMode)
 
     fun withParameter(name: Char, value: Double): StudyParameterUpdate = when (val update = parameters.withValue(name, value)) {
         is ParameterUpdateResult.Updated -> StudyParameterUpdate.Updated(

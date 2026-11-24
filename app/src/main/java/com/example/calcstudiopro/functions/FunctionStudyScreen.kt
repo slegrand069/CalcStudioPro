@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
@@ -56,12 +57,14 @@ import com.example.calcstudiopro.functions.domain.FunctionStudy
 fun FunctionStudyRoute(
     viewModel: FunctionStudyViewModel,
     onBack: () -> Unit,
+    onOpenStudies: () -> Unit = {},
     onOpenEditor: (FunctionSlotId) -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     FunctionStudyScreen(
         state = state,
         onBack = onBack,
+        onOpenStudies = onOpenStudies,
         onChooseColor = viewModel::chooseColor,
         onToggleVisibility = viewModel::toggleVisibility,
         onOpenEditor = onOpenEditor
@@ -72,6 +75,7 @@ fun FunctionStudyRoute(
 fun FunctionStudyScreen(
     state: FunctionStudyUiState,
     onBack: () -> Unit,
+    onOpenStudies: () -> Unit = {},
     onChooseColor: (FunctionSlotId, FunctionColor) -> Unit,
     onToggleVisibility: (FunctionSlotId) -> Unit,
     onOpenEditor: (FunctionSlotId) -> Unit = {}
@@ -97,6 +101,10 @@ fun FunctionStudyScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(start = 4.dp)
                 )
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                IconButton(onClick = onOpenStudies, modifier = Modifier.size(40.dp).testTag("functions-studies")) {
+                    Icon(Icons.Default.FolderOpen, contentDescription = "Études")
+                }
             }
 
             Text(
