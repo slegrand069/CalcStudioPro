@@ -1,9 +1,16 @@
 package com.example.calcstudiopro.functions.graph.interaction
 
 import com.example.calcstudiopro.domain.functions.FunctionAngleMode
+import com.example.calcstudiopro.domain.functions.ExpressionCompilation
+import com.example.calcstudiopro.domain.functions.MathExpressionEngine
 import com.example.calcstudiopro.functions.graph.FunctionGraphBatchResult
 import com.example.calcstudiopro.functions.graph.FunctionGraphCalculationOutcome
+import com.example.calcstudiopro.functions.graph.FunctionGraphInput
 import com.example.calcstudiopro.functions.graph.FunctionGraphRequest
+import com.example.calcstudiopro.functions.graph.FunctionGraphResult
+import com.example.calcstudiopro.functions.graph.FunctionGraphStatus
+import com.example.calcstudiopro.functions.graph.FunctionGraphDiagnostics
+import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import kotlinx.coroutines.CompletableDeferred
@@ -101,13 +108,15 @@ class FunctionGraphCalculationCoordinatorTest {
     }
 
     @Test fun contentRevisionInvalidatesOldResultButKeepsViewport() {
-        val fixture = Fixture()
+        val fixture = Fixture(contentWithParameterA())
         try {
             val initial = fixture.requests.single()
             fixture.deferreds.single().complete(completed(initial))
             fixture.coordinator.updateDisplayedViewport(viewport(2.0))
             fixture.deferreds[1].complete(completed(fixture.requests[1]))
-            val content = FunctionGraphContentSnapshot(2, emptyList(), mapOf('a' to 7.0), FunctionAngleMode.DEG)
+            val content = FunctionGraphContentSnapshot(
+                2, listOf(input('a')), mapOf('a' to 7.0), FunctionAngleMode.DEG
+            )
             fixture.coordinator.updateContent(content)
             val state = fixture.coordinator.state.value
             assertEquals(viewport(2.0), state.displayedViewport)
@@ -138,7 +147,7 @@ class FunctionGraphCalculationCoordinatorTest {
         val latestDeferred = CompletableDeferred<FunctionGraphCalculationOutcome>()
         val coordinator = FunctionGraphCalculationCoordinator(
             scope = scope,
-            initialContent = FunctionGraphContentSnapshot(1, emptyList()),
+            initialContent = contentWithParameterA(),
             initialPlotWidthPixels = 400,
             initialPlotHeightPixels = 240,
             scheduler = scheduler,
@@ -178,7 +187,7 @@ class FunctionGraphCalculationCoordinatorTest {
         val currentDeferred = CompletableDeferred<FunctionGraphCalculationOutcome>()
         val coordinator = FunctionGraphCalculationCoordinator(
             scope = scope,
-            initialContent = FunctionGraphContentSnapshot(1, emptyList()),
+            initialContent = contentWithParameterA(),
             initialPlotWidthPixels = 400,
             initialPlotHeightPixels = 240,
             scheduler = scheduler,
@@ -191,29 +200,139 @@ class FunctionGraphCalculationCoordinatorTest {
             }
         )
         try {
-            coordinator.updateContent(FunctionGraphContentSnapshot(2, emptyList(), mapOf('a' to 5.0)))
+            val parameterInput = input('a')
+            repeat(40) { index ->
+                coordinator.updateContent(FunctionGraphContentSnapshot(index + 2L, listOf(parameterInput), mapOf('a' to index + 5.0)))
+            }
             assertNull(coordinator.state.value.available)
             assertEquals(1, requests.size)
 
             gate.complete(Unit)
             assertEquals(2, requests.size)
-            assertEquals(mapOf('a' to 5.0), requests.last().parameters)
+            assertEquals("Rapid slider changes coalesce to the last selected value.", mapOf('a' to 44.0), requests.last().parameters)
             assertNull("The completion of the cancelled generation must not be published.", coordinator.state.value.available)
 
             currentDeferred.complete(completed(requests.last()))
-            assertEquals(2L, coordinator.state.value.available?.contentRevision)
+            assertEquals(41L, coordinator.state.value.available?.contentRevision)
             assertEquals(requests.last().generation, coordinator.state.value.available?.batch?.generation)
         } finally { coordinator.close(); scope.cancel() }
     }
 
-    private class Fixture {
+    @Test fun parameterUsedOnlyByHiddenFunctionsDoesNotInvalidateVisibleCalculation() {
+        val visible = input('a', visible = true)
+        val hiddenA = input('c', visible = false, id = FunctionSlotId.F1)
+        val hiddenB = input('b', visible = false, id = FunctionSlotId.F2)
+        val fixture = Fixture(
+            FunctionGraphContentSnapshot(1, listOf(hiddenA, hiddenB, visible), mapOf('a' to 2.0, 'b' to 3.0, 'c' to 4.0))
+        )
+        try {
+            val initial = fixture.requests.single()
+            fixture.deferreds.single().complete(completed(initial))
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(2, listOf(hiddenA, hiddenB, visible), mapOf('a' to 2.0, 'b' to 3.0, 'c' to 9.0))
+            )
+            assertEquals("A parameter absent from visible expressions must not submit another sample.", 1, fixture.requests.size)
+            assertEquals(2L, fixture.coordinator.state.value.available?.contentRevision)
+            assertEquals("The accepted path retains the exact request context that produced it.", 4.0, fixture.coordinator.state.value.available?.request?.parameters?.get('c')!!, 0.0)
+        } finally { fixture.close() }
+    }
+
+    @Test fun parameterSharedByVisibleAndHiddenFunctionsResamplesVisibleSlotsOnly() {
+        val visible = input('a', visible = true, id = FunctionSlotId.F3)
+        val hidden = input('a', visible = false, id = FunctionSlotId.F1)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(hidden, visible), mapOf('a' to 1.0)))
+        try {
+            fixture.deferreds.single().complete(completed(fixture.requests.single()))
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(2, listOf(hidden, visible), mapOf('a' to 4.0))
+            )
+            assertEquals(2, fixture.requests.size)
+            assertEquals("Only the visible slot whose dependency changed is submitted.", listOf(FunctionSlotId.F3), fixture.requests.last().functions.map { it.id })
+            assertTrue(fixture.requests.last().functions.single().isVisible)
+        } finally { fixture.close() }
+    }
+
+    @Test fun parameterChangeResamplesOnlyDependentVisibleSlotsAndKeepsOtherCurveData() {
+        val curveA = input('a', id = FunctionSlotId.F3)
+        val curveB = input('b', id = FunctionSlotId.F4)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(curveA, curveB), mapOf('a' to 1.0, 'b' to 2.0)))
+        try {
+            fixture.deferreds.single().complete(completed(fixture.requests.single()))
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(2, listOf(curveA, curveB), mapOf('a' to 5.0, 'b' to 2.0))
+            )
+            assertEquals(listOf(FunctionSlotId.F3), fixture.requests.last().functions.map { it.id })
+            fixture.deferreds.last().complete(completed(fixture.requests.last()))
+            val accepted = fixture.coordinator.state.value.available!!
+            assertEquals(listOf(FunctionSlotId.F3, FunctionSlotId.F4), accepted.batch.results.map { it.id })
+            assertEquals(2, accepted.batch.results.size)
+        } finally { fixture.close() }
+    }
+
+    @Test fun makingPreviouslyHiddenFunctionVisibleRequestsCurrentParameters() {
+        val hidden = input('a', visible = false, id = FunctionSlotId.F1)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(hidden), mapOf('a' to 1.0)))
+        try {
+            fixture.deferreds.single().complete(completed(fixture.requests.single()))
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(2, listOf(input('a', visible = true, id = FunctionSlotId.F1)), mapOf('a' to 7.0))
+            )
+            assertEquals(2, fixture.requests.size)
+            assertEquals(7.0, fixture.requests.last().parameters['a']!!, 0.0)
+            assertTrue(fixture.requests.last().functions.single().isVisible)
+        } finally { fixture.close() }
+    }
+
+    @Test fun visibilityChangesDoNotChangeMathRevisionButRevealUsesTheCurrentContext() {
+        val initiallyVisible = input('a', visible = true, id = FunctionSlotId.F1)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(initiallyVisible), mapOf('a' to 2.0)))
+        try {
+            fixture.deferreds.single().complete(completed(fixture.requests.single()))
+            val hidden = initiallyVisible.copy(isVisible = false)
+            fixture.coordinator.updateContent(FunctionGraphContentSnapshot(1, listOf(hidden), mapOf('a' to 2.0)))
+            assertEquals("Hiding a function reuses the available visible paths.", 1, fixture.requests.size)
+
+            val shown = initiallyVisible.copy(isVisible = true)
+            fixture.coordinator.updateContent(FunctionGraphContentSnapshot(2, listOf(shown), mapOf('a' to 8.0)))
+            assertEquals("A newly shown curve must be sampled with current parameters.", 2, fixture.requests.size)
+            assertEquals(8.0, fixture.requests.last().parameters['a']!!, 0.0)
+        } finally { fixture.close() }
+    }
+
+    @Test fun revealingPreviouslyUnsampledSlotAtSameMathRevisionIsNotMistakenForCoveredResult() {
+        val hidden = input('a', visible = false, id = FunctionSlotId.F1)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(hidden), mapOf('a' to 2.0)))
+        try {
+            fixture.deferreds.single().complete(completed(fixture.requests.single()))
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(1, listOf(hidden.copy(isVisible = true)), mapOf('a' to 2.0))
+            )
+            assertEquals("A batch sampled while the slot was hidden does not cover its newly visible expression.", 2, fixture.requests.size)
+            assertEquals(listOf(FunctionSlotId.F1), fixture.requests.last().functions.map { it.id })
+        } finally { fixture.close() }
+    }
+
+    @Test fun hidingAFunctionDuringAnActiveSampleCancelsItsWorkAndKeepsVisibleCurves() {
+        val costly = input('a', id = FunctionSlotId.F1)
+        val visible = input('b', id = FunctionSlotId.F3)
+        val fixture = Fixture(FunctionGraphContentSnapshot(1, listOf(costly, visible), mapOf('a' to 2.0, 'b' to 3.0)))
+        try {
+            fixture.coordinator.updateContent(
+                FunctionGraphContentSnapshot(1, listOf(costly.copy(isVisible = false), visible), mapOf('a' to 2.0, 'b' to 3.0))
+            )
+            assertTrue("An active request spending time on the newly hidden slot is canceled.", fixture.deferreds.first().isCancelled)
+            assertEquals(listOf(FunctionSlotId.F3), fixture.requests.last().functions.map { it.id })
+        } finally { fixture.close() }
+    }
+
+    private class Fixture(content: FunctionGraphContentSnapshot = FunctionGraphContentSnapshot(1, emptyList())) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val scheduler = FakeScheduler()
         val requests = mutableListOf<FunctionGraphRequest>()
         val deferreds = mutableListOf<CompletableDeferred<FunctionGraphCalculationOutcome>>()
         val coordinator = FunctionGraphCalculationCoordinator(
             scope = scope,
-            initialContent = FunctionGraphContentSnapshot(1, emptyList()),
+            initialContent = content,
             initialPlotWidthPixels = 400,
             initialPlotHeightPixels = 240,
             scheduler = scheduler,
@@ -246,8 +365,22 @@ class FunctionGraphCalculationCoordinatorTest {
     }
 
     private fun completed(request: FunctionGraphRequest) = FunctionGraphCalculationOutcome.Completed(
-        FunctionGraphBatchResult(request.generation, emptyList(), 0)
+        FunctionGraphBatchResult(
+            request.generation,
+            request.functions.map { FunctionGraphResult(it.id, emptyList(), FunctionGraphStatus.NoDefinedPortion,
+                FunctionGraphDiagnostics(1, 0, 0, 0)) },
+            request.functions.size
+        )
     )
+
+    private fun contentWithParameterA() = FunctionGraphContentSnapshot(
+        1, listOf(input('a')), mapOf('a' to 1.0)
+    )
+
+    private fun input(parameter: Char, visible: Boolean = true, id: FunctionSlotId = FunctionSlotId.F3): FunctionGraphInput {
+        val expression = (MathExpressionEngine().compile("$parameter*x") as ExpressionCompilation.Success).expression
+        return FunctionGraphInput(id, expression, isVisible = visible, parameterDependencies = setOf(parameter))
+    }
 
     private fun viewport(shift: Double) = GraphViewport(
         AxisRange(-10.0 + shift, 10.0 + shift), AxisRange(-10.0 - shift, 10.0 - shift)

@@ -7,6 +7,10 @@ import com.example.calcstudiopro.functions.graph.FunctionGraphCalculationOutcome
 import com.example.calcstudiopro.functions.graph.FunctionGraphCalculator
 import com.example.calcstudiopro.functions.graph.FunctionGraphInput
 import com.example.calcstudiopro.functions.graph.FunctionGraphRequest
+import com.example.calcstudiopro.functions.graph.FunctionGraphResult
+import com.example.calcstudiopro.functions.graph.FunctionGraphStatus
+import com.example.calcstudiopro.functions.graph.FunctionGraphDiagnostics
+import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -43,24 +47,45 @@ data class FunctionGraphRequestContext(
 ) {
     init { require(plotWidthPixels > 0 && plotHeightPixels > 0) }
 
-    fun toRequest(generation: Long) = FunctionGraphRequest(
+    fun toRequest(generation: Long, functions: List<FunctionGraphInput> = content.functions) = FunctionGraphRequest(
         generation = generation,
         xRange = viewport.x,
         yRange = viewport.y,
         plotWidthPixels = plotWidthPixels,
         plotHeightPixels = plotHeightPixels,
-        functions = content.functions,
+        functions = functions,
         parameters = content.parameters,
         angleMode = content.angleMode,
         budget = content.budget
     )
 
-    fun sameCalculation(other: FunctionGraphRequestContext): Boolean =
-        content.revision == other.content.revision &&
-            content.functions == other.content.functions &&
-            content.parameters == other.content.parameters &&
-            content.angleMode == other.content.angleMode && content.budget == other.content.budget &&
-            viewport == other.viewport && plotWidthPixels == other.plotWidthPixels && plotHeightPixels == other.plotHeightPixels
+    fun sameCalculation(other: FunctionGraphRequestContext): Boolean {
+        val visibleIds = content.functions.filter { it.isVisible }.map { it.id }.toSet()
+        val otherVisibleIds = other.content.functions.filter { it.isVisible }.map { it.id }.toSet()
+        return visibleIds == otherVisibleIds && sameContentCalculation(other) && viewport == other.viewport &&
+            plotWidthPixels == other.plotWidthPixels && plotHeightPixels == other.plotHeightPixels
+    }
+
+    fun sameContentCalculation(other: FunctionGraphRequestContext): Boolean {
+        if (content.angleMode != other.content.angleMode || content.budget != other.content.budget) return false
+        val oldVisible = content.functions.filter { it.isVisible }.associateBy { it.id }
+        val newVisible = other.content.functions.filter { it.isVisible }.associateBy { it.id }
+        // Hiding a slot cannot invalidate remaining visible curves; revealing one requires sampling it.
+        if (!oldVisible.keys.containsAll(newVisible.keys)) return false
+        return oldVisible.all { (id, old) ->
+            if (id !in newVisible) return@all true
+            val new = newVisible.getValue(id)
+            if (old.expression != new.expression || old.compilationError != new.compilationError) return@all false
+            val dependencies = old.parameterDependencies ?: (content.parameters.keys + other.content.parameters.keys)
+            dependencies.all { content.parameters[it] == other.content.parameters[it] }
+        }
+    }
+
+    fun sameMathContent(other: FunctionGraphRequestContext): Boolean =
+        content.angleMode == other.content.angleMode && content.budget == other.content.budget &&
+            content.functions.map { it.id to (it.expression to it.compilationError) } ==
+                other.content.functions.map { it.id to (it.expression to it.compilationError) } &&
+            content.parameters == other.content.parameters
 }
 
 data class FunctionGraphAcceptedResult(
@@ -119,6 +144,7 @@ class FunctionGraphCalculationCoordinator(
     private var width = initialPlotWidthPixels.also { require(it > 0) }
     private var height = initialPlotHeightPixels.also { require(it > 0) }
     private var pending: FunctionGraphRequestContext? = null
+    private var pendingReusableResults: Map<FunctionSlotId, FunctionGraphResult> = emptyMap()
     private var active: ActiveCalculation? = null
     private var lastSubmitted: FunctionGraphRequestContext? = null
     private var lastSubmittedAt = Long.MIN_VALUE / 2
@@ -145,6 +171,7 @@ class FunctionGraphCalculationCoordinator(
             )
         }
         pending = context(viewport)
+        pendingReusableResults = emptyMap()
         mutableState.value = mutableState.value.copy(pending = pending)
         if (old.gestureActive) requestIntermediateIfDueLocked() else requestFinalLocked()
     }
@@ -162,17 +189,59 @@ class FunctionGraphCalculationCoordinator(
     /** A new content revision invalidates old results; viewport-only updates leave it unchanged. */
     fun updateContent(newContent: FunctionGraphContentSnapshot) = synchronized(lock) {
         if (closed) return@synchronized
+        val current = mutableState.value
+        val previousContext = context(current.displayedViewport)
         if (newContent.revision == content.revision &&
             newContent.functions == content.functions && newContent.parameters == content.parameters &&
             newContent.angleMode == content.angleMode && newContent.budget == content.budget
         ) return@synchronized
-        require(newContent.revision > content.revision) {
-            "Content changes must use a strictly newer content revision."
+        if (newContent.revision == content.revision) {
+            require(previousContext.sameMathContent(previousContext.copy(content = newContent))) {
+                "A reused content revision cannot change expressions, parameters, or angle mode."
+            }
+        } else {
+            require(newContent.revision > content.revision) {
+                "Math-affecting content changes must use a strictly newer content revision."
+            }
         }
+        val equivalentCalculation = previousContext.sameContentCalculation(previousContext.copy(content = newContent))
         content = newContent
-        val current = mutableState.value
+        if (equivalentCalculation) {
+            val nowHidden = active?.request?.functions.orEmpty().any { requested ->
+                requested.isVisible && newContent.functions.firstOrNull { it.id == requested.id }?.isVisible != true
+            }
+            pending = if (nowHidden) context(current.displayedViewport) else null
+            pendingReusableResults = if (nowHidden) reusableResults(current.available, context(current.displayedViewport)) else emptyMap()
+            val available = current.available?.let { accepted ->
+                accepted.copy(contentRevision = newContent.revision)
+            }
+            mutableState.value = current.copy(available = available, pending = pending)
+            if (nowHidden) {
+                cancelActiveLocked()
+                if (!mutableState.value.gestureActive) requestFinalLocked()
+            }
+            return@synchronized
+        }
+        val newContext = context(current.displayedViewport)
+        val reusableResults = reusableResults(current.available, newContext)
+        val visibleIds = newContent.functions.filter { it.isVisible }.map { it.id }.toSet()
+        if (current.available != null && reusableResults.keys.containsAll(visibleIds) &&
+            current.available.request.xRange == current.displayedViewport.x &&
+            current.available.request.yRange == current.displayedViewport.y &&
+            current.available.request.plotWidthPixels == width && current.available.request.plotHeightPixels == height
+        ) {
+            val fullRequest = newContext.toRequest(current.available.batch.generation)
+            val merged = mergeResults(newContent, reusableResults, emptyList())
+            val batch = FunctionGraphBatchResult(current.available.batch.generation, merged, current.available.batch.totalEvaluationCount)
+            val rebased = FunctionGraphAcceptedResult(newContent.revision, fullRequest, batch)
+            pending = null
+            pendingReusableResults = emptyMap()
+            mutableState.value = current.copy(available = rebased, pending = null)
+            return@synchronized
+        }
         val stillCompatible = current.available?.contentRevision == newContent.revision
         pending = context(current.displayedViewport)
+        pendingReusableResults = reusableResults
         mutableState.value = current.copy(available = if (stillCompatible) current.available else null, pending = pending)
         cancelActiveLocked()
         if (!mutableState.value.gestureActive) requestFinalLocked()
@@ -185,6 +254,7 @@ class FunctionGraphCalculationCoordinator(
         width = widthPixels
         height = heightPixels
         pending = context(mutableState.value.displayedViewport)
+        pendingReusableResults = emptyMap()
         mutableState.value = mutableState.value.copy(pending = pending)
         if (!mutableState.value.gestureActive) requestFinalLocked() else requestIntermediateIfDueLocked()
     }
@@ -227,11 +297,15 @@ class FunctionGraphCalculationCoordinator(
     private fun isAlreadyCoveredLocked(context: FunctionGraphRequestContext): Boolean =
         active?.context?.sameCalculation(context) == true ||
             mutableState.value.available?.let { available ->
-                available.contentRevision == context.content.revision &&
-                    available.request.let { request ->
-                        request.xRange == context.viewport.x && request.yRange == context.viewport.y &&
-                            request.plotWidthPixels == context.plotWidthPixels && request.plotHeightPixels == context.plotHeightPixels
-                    }
+                val request = available.request
+                FunctionGraphRequestContext(
+                    content = FunctionGraphContentSnapshot(
+                        available.contentRevision, request.functions, request.parameters, request.angleMode, request.budget
+                    ),
+                    viewport = GraphViewport(request.xRange, request.yRange),
+                    plotWidthPixels = request.plotWidthPixels,
+                    plotHeightPixels = request.plotHeightPixels
+                ).sameCalculation(context)
             } == true
 
     private fun submitPendingLocked() {
@@ -243,11 +317,15 @@ class FunctionGraphCalculationCoordinator(
             return
         }
         check(nextGeneration < Long.MAX_VALUE) { "Graph calculation generation exhausted." }
-        val request = context.toRequest(nextGeneration++)
+        val generation = nextGeneration++
+        val allRequest = context.toRequest(generation)
+        val sampledFunctions = context.content.functions.filter { it.isVisible && it.id !in pendingReusableResults }
+        val request = context.toRequest(generation, sampledFunctions)
         val deferred = submit(request)
-        val job = ActiveCalculation(context, request, deferred)
+        val job = ActiveCalculation(context, request, allRequest, pendingReusableResults, deferred)
         active = job
         pending = null
+        pendingReusableResults = emptyMap()
         lastSubmitted = context
         lastSubmittedAt = scheduler.nowMillis()
         mutableState.value = mutableState.value.copy(
@@ -269,10 +347,13 @@ class FunctionGraphCalculationCoordinator(
             val old = mutableState.value
             val completed = outcome as? FunctionGraphCalculationOutcome.Completed
             val available = completed?.result?.let { batch ->
-                val revisionStillCurrent = content.revision == job.context.content.revision
+                val currentContext = context(old.displayedViewport)
+                val revisionStillCurrent = job.context.sameContentCalculation(currentContext)
                 val isNewerThanAccepted = old.available == null || batch.generation > old.available.batch.generation
                 if (revisionStillCurrent && isNewerThanAccepted && batch.generation == job.request.generation) {
-                    FunctionGraphAcceptedResult(job.context.content.revision, job.request, batch)
+                    val merged = mergeResults(job.context.content, job.reusedResults, batch.results)
+                    val completeBatch = FunctionGraphBatchResult(batch.generation, merged, batch.totalEvaluationCount)
+                    FunctionGraphAcceptedResult(content.revision, job.fullRequest, completeBatch)
                 } else old.available
             } ?: old.available
             mutableState.value = old.copy(available = available, calculationActive = false)
@@ -305,7 +386,56 @@ class FunctionGraphCalculationCoordinator(
     private data class ActiveCalculation(
         val context: FunctionGraphRequestContext,
         val request: FunctionGraphRequest,
+        val fullRequest: FunctionGraphRequest,
+        val reusedResults: Map<FunctionSlotId, FunctionGraphResult>,
         val deferred: Deferred<FunctionGraphCalculationOutcome>
+    )
+
+    private fun reusableResults(
+        accepted: FunctionGraphAcceptedResult?,
+        newContext: FunctionGraphRequestContext
+    ): Map<FunctionSlotId, FunctionGraphResult> {
+        if (accepted == null || accepted.request.xRange != newContext.viewport.x ||
+            accepted.request.yRange != newContext.viewport.y ||
+            accepted.request.plotWidthPixels != newContext.plotWidthPixels ||
+            accepted.request.plotHeightPixels != newContext.plotHeightPixels ||
+            accepted.request.angleMode != newContext.content.angleMode
+        ) return emptyMap()
+        val oldInputs = accepted.request.functions.associateBy { it.id }
+        val oldResults = accepted.batch.results.associateBy { it.id }
+        return newContext.content.functions.asSequence().filter { it.isVisible }.mapNotNull { input ->
+            val oldInput = oldInputs[input.id] ?: return@mapNotNull null
+            if (!oldInput.isVisible || oldInput.expression !== input.expression ||
+                oldInput.compilationError != input.compilationError
+            ) return@mapNotNull null
+            val dependencies = if (oldInput.parameterDependencies == null || input.parameterDependencies == null) {
+                accepted.request.parameters.keys + newContext.content.parameters.keys
+            } else oldInput.parameterDependencies + input.parameterDependencies
+            if (dependencies.any { parameter ->
+                    (accepted.request.parameters[parameter] ?: 1.0) != (newContext.content.parameters[parameter] ?: 1.0)
+                }) return@mapNotNull null
+            oldResults[input.id]?.let { input.id to it }
+        }.toMap()
+    }
+
+    private fun mergeResults(
+        snapshot: FunctionGraphContentSnapshot,
+        reused: Map<FunctionSlotId, FunctionGraphResult>,
+        sampled: List<FunctionGraphResult>
+    ): List<FunctionGraphResult> {
+        val sampledById = sampled.associateBy { it.id }
+        return snapshot.functions.map { input ->
+            when {
+                !input.isVisible -> emptyResult(input.id)
+                input.id in sampledById -> sampledById.getValue(input.id)
+                input.id in reused -> reused.getValue(input.id)
+                else -> emptyResult(input.id)
+            }
+        }
+    }
+
+    private fun emptyResult(id: FunctionSlotId) = FunctionGraphResult(
+        id, emptyList(), FunctionGraphStatus.Empty, FunctionGraphDiagnostics(0, 0, 0, 0)
     )
 
     companion object { const val DEFAULT_INTERVAL_MILLIS = 250L }

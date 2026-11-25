@@ -3,9 +3,11 @@ package com.example.calcstudiopro.functions
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
+import com.example.calcstudiopro.domain.functions.FunctionAngleMode
 import com.example.calcstudiopro.functions.domain.FunctionColor
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionStudy
+import com.example.calcstudiopro.functions.domain.StudyParameterUpdate
 import com.example.calcstudiopro.functions.domain.FunctionStudyId
 import com.example.calcstudiopro.functions.domain.FunctionStudyKind
 import com.example.calcstudiopro.functions.domain.FunctionStudyRevision
@@ -95,6 +97,57 @@ class FunctionStudyViewModel(
     }
 
     fun updateDraft(slotId: FunctionSlotId, draft: String) = update { it.withDraft(slotId, draft) }
+
+    /** Updates an explicit shared parameter without recompiling any validated expression. */
+    fun setParameter(name: Char, value: Double): Boolean {
+        val study = mutableState.value.study ?: return false
+        val update = study.withParameter(name, value) as? com.example.calcstudiopro.functions.domain.StudyParameterUpdate.Updated
+            ?: return false
+        saveStudy(update.study)
+        return true
+    }
+
+    /** Updates slider state immediately; persistence is deferred until the gesture settles. */
+    fun setGraphParameter(name: Char, value: Double): Boolean {
+        val currentState = mutableState.value
+        val study = currentState.study ?: return false
+        val updated = (study.withParameter(name, value) as? StudyParameterUpdate.Updated)?.study ?: return false
+        if (updated.revision() == study.revision()) return true
+        mutableState.value = currentState.copy(study = updated, saveError = null, operationError = null)
+        return true
+    }
+
+    /** Persists only the final slider value, avoiding a synchronous file write for each drag frame. */
+    fun commitGraphParameterChanges(): Boolean {
+        val study = mutableState.value.study ?: return false
+        if (study.revision() == workingFileRevision) return true
+        saveStudy(study)
+        return mutableState.value.saveError == null
+    }
+
+    fun resetParameter(name: Char): Boolean {
+        val study = mutableState.value.study ?: return false
+        val update = study.resetParameter(name) as? com.example.calcstudiopro.functions.domain.StudyParameterUpdate.Updated
+            ?: return false
+        saveStudy(update.study)
+        return true
+    }
+
+    /** Angle mode belongs to the function study and is independent of calculator settings. */
+    fun setAngleMode(mode: FunctionAngleMode) = update { it.withAngleMode(mode) }
+
+    /** Applies the graph's parameter and angle controls as one working-session transition. */
+    fun updateGraphSettings(values: Map<Char, Double>, mode: FunctionAngleMode): Boolean {
+        val current = mutableState.value.study ?: return false
+        var updated = current
+        for ((name, value) in values) {
+            updated = (updated.withParameter(name, value) as? StudyParameterUpdate.Updated)?.study ?: return false
+        }
+        updated = updated.withAngleMode(mode)
+        if (updated.revision() == current.revision()) return true
+        saveStudy(updated)
+        return mutableState.value.saveError == null
+    }
 
     fun validateDraft(slotId: FunctionSlotId): StudyValidationResult? {
         val study = mutableState.value.study ?: return null

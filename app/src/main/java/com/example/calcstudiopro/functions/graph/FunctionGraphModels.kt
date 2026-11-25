@@ -25,16 +25,23 @@ class FunctionGraphSegment(points: List<FunctionGraphPoint>) {
 data class FunctionGraphInput(
     val id: FunctionSlotId,
     val expression: CompiledMathExpression? = null,
-    val compilationError: MathExpressionError? = null
+    val compilationError: MathExpressionError? = null,
+    val isVisible: Boolean = true,
+    /** Null is conservative for callers predating dependency metadata. */
+    val parameterDependencies: Set<Char>? = null
 ) {
-    init { require(expression == null || compilationError == null) }
+    init {
+        require(expression == null || compilationError == null)
+        require(parameterDependencies == null || parameterDependencies.all { it.isLetter() })
+    }
 }
 
 data class FunctionGraphBudget(
     /** Starting intervals are increased with plot width, up to [maximumInitialIntervals]. */
     val minimumInitialIntervals: Int = 16,
-    val maximumInitialIntervals: Int = 128,
-    val pixelsPerInitialInterval: Int = 8,
+    /** Midpoint interleaving makes the initial mesh about one sample per pixel. */
+    val maximumInitialIntervals: Int = 512,
+    val pixelsPerInitialInterval: Int = 2,
     val maximumEvaluationsPerFunction: Int = 4096,
     val maximumTotalEvaluations: Int = 24_576,
     val maximumSubdivisionDepth: Int = 12,
@@ -100,7 +107,17 @@ data class FunctionGraphDiagnostics(
     val subdivisionCount: Int,
     val maximumDepthReached: Int,
     val discontinuityBreakCount: Int,
-    val budgetLimit: FunctionGraphBudgetLimit? = null
+    val budgetLimit: FunctionGraphBudgetLimit? = null,
+    val initialIntervalCount: Int = 0,
+    val intervalsExplored: Int = 0,
+    val sampledMinimumX: Double? = null,
+    val sampledMaximumX: Double? = null,
+    /** Sum of represented segment X lengths divided by the requested X span. */
+    val representedXFraction: Double = 0.0,
+    /** Fraction of the X window whose piecewise-linear curve lies inside the requested Y window. */
+    val visibleXFraction: Double = 0.0,
+    /** Intervals deliberately omitted because the available sampling could not resolve them. */
+    val unresolvedIntervalCount: Int = 0
 )
 
 class FunctionGraphResult(

@@ -1,6 +1,7 @@
 package com.example.calcstudiopro.functions
 
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
+import com.example.calcstudiopro.domain.functions.FunctionAngleMode
 import com.example.calcstudiopro.functions.domain.FunctionColor
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionStudy
@@ -16,6 +17,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class FunctionStudyViewModelTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
@@ -95,5 +97,65 @@ class FunctionStudyViewModelTest {
         assertTrue(viewModel.validateDraft(FunctionSlotId.F2) is StudyValidationResult.Accepted)
         assertEquals("x+5", viewModel.state.value.study!!.slot(FunctionSlotId.F2).validatedExpression)
         assertEquals("x+5", viewModel.state.value.study!!.slot(FunctionSlotId.F2).draft)
+    }
+
+    @Test fun graphParameterAndAngleChangesAutosaveWithoutRecompilingValidatedExpressions() {
+        val store = FunctionStudyStore(temporaryFolder.newFolder("graph-study-settings").toPath(), MathExpressionEngine())
+        val viewModel = FunctionStudyViewModel(store)
+        viewModel.updateDraft(FunctionSlotId.F1, "sin(x)+a")
+        assertTrue(viewModel.validateDraft(FunctionSlotId.F1) is StudyValidationResult.Accepted)
+        val compiledBefore = viewModel.state.value.study!!.slot(FunctionSlotId.F1).compiledExpression
+
+        assertTrue(viewModel.setParameter('a', 2.5))
+        viewModel.setAngleMode(FunctionAngleMode.DEG)
+        val updated = viewModel.state.value.study!!
+
+        assertEquals(FunctionAngleMode.DEG, updated.angleMode)
+        assertEquals(2.5, updated.parameters.value('a'), 0.0)
+        assertTrue(compiledBefore === updated.slot(FunctionSlotId.F1).compiledExpression)
+        assertNull(viewModel.state.value.saveError)
+        val restored = (store.loadWorkingSession() as com.example.calcstudiopro.functions.persistence.StudyStoreResult.Success).value!!
+        assertEquals(FunctionAngleMode.DEG, restored.angleMode)
+        assertEquals(2.5, restored.parameters.value('a'), 0.0)
+    }
+
+    @Test fun graphSettingsExposeAutosaveFailureWithoutDiscardingTheWorkingChange() {
+        val store = FunctionStudyStore(
+            temporaryFolder.newFolder("graph-settings-write-error").toPath(),
+            MathExpressionEngine(),
+            AtomicFileWriter { _, _ -> throw IOException("Injected write failure") }
+        )
+        val viewModel = FunctionStudyViewModel(store)
+
+        assertTrue(!viewModel.updateGraphSettings(mapOf('a' to 4.0), FunctionAngleMode.DEG))
+        assertEquals(4.0, viewModel.state.value.study!!.parameters.value('a'), 0.0)
+        assertEquals(FunctionAngleMode.DEG, viewModel.state.value.study!!.angleMode)
+        assertNotNull(viewModel.state.value.saveError)
+    }
+
+    @Test fun sliderChangesPublishImmediatelySkipDuplicatesAndPersistOnlyTheFinalValue() {
+        val writes = AtomicInteger()
+        val store = FunctionStudyStore(
+            temporaryFolder.newFolder("graph-slider-coalescing").toPath(),
+            MathExpressionEngine(),
+            AtomicFileWriter { target, bytes ->
+                writes.incrementAndGet()
+                java.nio.file.Files.write(target, bytes)
+            }
+        )
+        val viewModel = FunctionStudyViewModel(store)
+        val initialWriteCount = writes.get()
+
+        assertTrue(viewModel.setGraphParameter('a', 4.0))
+        assertTrue(viewModel.setGraphParameter('a', 4.0))
+        assertTrue(viewModel.setGraphParameter('a', 7.0))
+        assertEquals(7.0, viewModel.state.value.study!!.parameters.value('a'), 0.0)
+        assertEquals(initialWriteCount, writes.get())
+
+        assertTrue(viewModel.commitGraphParameterChanges())
+        assertEquals(initialWriteCount + 1, writes.get())
+        assertEquals(7.0, (store.loadWorkingSession() as com.example.calcstudiopro.functions.persistence.StudyStoreResult.Success).value!!.parameters.value('a'), 0.0)
+        assertTrue(viewModel.commitGraphParameterChanges())
+        assertEquals("Repeated commit without a new value must not write again", initialWriteCount + 1, writes.get())
     }
 }

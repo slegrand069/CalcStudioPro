@@ -2,6 +2,8 @@ package com.example.calcstudiopro.functions.graph
 
 import com.example.calcstudiopro.domain.functions.ExpressionEvaluation
 import java.util.TreeMap
+import java.util.ArrayDeque
+import kotlin.math.min
 import kotlin.math.abs
 
 /** CPU-only adaptive sampler. It never creates screen coordinates or Compose objects. */
@@ -48,7 +50,14 @@ class FunctionGraphSampler {
             sampler.subdivisionCount,
             sampler.maximumDepthReached,
             sampler.discontinuityBreakCount,
-            budgetLimit
+            budgetLimit,
+            sampler.initialIntervalCount,
+            sampler.intervalsExplored,
+            sampler.sampledMinimumX,
+            sampler.sampledMaximumX,
+            sampler.representedXFraction(segments),
+            sampler.visibleXFraction(segments),
+            sampler.unresolvedIntervalCount
         )
     }
 
@@ -60,8 +69,19 @@ class FunctionGraphSampler {
         subdivisions: Int,
         maxDepth: Int,
         breaks: Int,
-        budget: FunctionGraphBudgetLimit?
-    ) = FunctionGraphResult(id, segments, status, FunctionGraphDiagnostics(evaluations, subdivisions, maxDepth, breaks, budget))
+        budget: FunctionGraphBudgetLimit?,
+        initialIntervals: Int = 0,
+        intervalsExplored: Int = 0,
+        sampledMinimumX: Double? = null,
+        sampledMaximumX: Double? = null,
+        representedXFraction: Double = 0.0,
+        visibleXFraction: Double = 0.0,
+        unresolvedIntervalCount: Int = 0
+    ) = FunctionGraphResult(
+        id, segments, status,
+        FunctionGraphDiagnostics(evaluations, subdivisions, maxDepth, breaks, budget, initialIntervals,
+            intervalsExplored, sampledMinimumX, sampledMaximumX, representedXFraction, visibleXFraction, unresolvedIntervalCount)
+    )
 
     private inner class SamplingRun(
         private val request: FunctionGraphRequest,
@@ -76,6 +96,14 @@ class FunctionGraphSampler {
             private set
         var maximumDepthReached = 0
             private set
+        var initialIntervalCount = 0
+            private set
+        var intervalsExplored = 0
+            private set
+        val unresolvedIntervalCount: Int get() = unresolved.size
+        val sampledMinimumX: Double? get() = samples.firstKeyOrNull()
+        val sampledMaximumX: Double? get() = samples.lastKeyOrNull()
+        private val unresolved = HashSet<UnresolvedInterval>()
         val discontinuityBreakCount: Int
             get() = samples.values.count { it.y == null }
         private var reachedLimit: FunctionGraphBudgetLimit? = null
@@ -84,64 +112,71 @@ class FunctionGraphSampler {
         private val budget get() = request.budget
 
         fun run() {
-            val intervals = budget.initialIntervals(request.plotWidthPixels)
-            for (index in 0 until intervals) {
+            val configuredIntervals = budget.initialIntervals(request.plotWidthPixels)
+            val available = min(
+                min(budget.maximumEvaluationsPerFunction - evaluationCount, counter.remaining),
+                budget.maximumPointsPerFunction - samples.size
+            ).coerceAtLeast(0)
+            initialIntervalCount = min(configuredIntervals, ((available - 1) / 2).coerceAtLeast(0))
+            if (initialIntervalCount == 0) {
+                try {
+                    evaluate(request.xRange.minimum)
+                } catch (limit: BudgetReached) {
+                    throw limit
+                }
+                reachedLimit = if (counter.remaining == 0) FunctionGraphBudgetLimit.TOTAL_EVALUATIONS else FunctionGraphBudgetLimit.FUNCTION_EVALUATIONS
+                throw BudgetReached(reachedLimit!!)
+            }
+
+            val anchors = ArrayList<Sample>(initialIntervalCount + 1)
+            try {
+                for (index in 0..initialIntervalCount) {
+                    cancellationCheck()
+                    anchors += evaluate(interpolateX(index.toDouble() / initialIntervalCount))
+                }
+            } catch (limit: BudgetReached) {
+                anchors.zipWithNext().forEach { (left, right) -> unresolved += UnresolvedInterval(left.x, right.x) }
+                throw limit
+            }
+
+            val queue = ArrayDeque<Interval>()
+            for (index in 0 until initialIntervalCount) queue.addLast(Interval(anchors[index], anchors[index + 1], 0))
+            while (queue.isNotEmpty()) {
                 cancellationCheck()
-                val leftX = interpolateX(index.toDouble() / intervals)
-                val rightX = interpolateX((index + 1.0) / intervals)
-                val left = evaluate(leftX)
-                val right = evaluate(rightX)
-                refine(left, right, 0)
+                val interval = queue.removeFirst()
+                intervalsExplored++
+                maximumDepthReached = maxOf(maximumDepthReached, interval.depth)
+                val middleX = midpoint(interval.left.x, interval.right.x)
+                if (middleX <= interval.left.x || middleX >= interval.right.x) continue
+                val middle = try {
+                    evaluate(middleX)
+                } catch (limit: BudgetReached) {
+                    unresolved += UnresolvedInterval(interval.left.x, interval.right.x)
+                    while (queue.isNotEmpty()) {
+                        val pending = queue.removeFirst()
+                        unresolved += UnresolvedInterval(pending.left.x, pending.right.x)
+                    }
+                    throw limit
+                }
+                val leftDefined = interval.left.y != null
+                val middleDefined = middle.y != null
+                val rightDefined = interval.right.y != null
+                val containsGap = !leftDefined || !middleDefined || !rightDefined
+                if (!leftDefined && !middleDefined && !rightDefined) continue
+                val errorPixels = if (!containsGap) chordErrorPixels(interval.left.y!!, middle.y!!, interval.right.y!!) else Double.POSITIVE_INFINITY
+                if (!containsGap && errorPixels <= budget.chordTolerancePixels) continue
+
+                if (interval.depth >= budget.maximumSubdivisionDepth) {
+                    if (leftDefined && middleDefined && rightDefined) samples[middle.x] = Sample(middle.x, null)
+                    unresolved += UnresolvedInterval(interval.left.x, interval.right.x)
+                    reachedLimit = FunctionGraphBudgetLimit.SUBDIVISION_DEPTH
+                    continue
+                }
+                subdivisionCount++
+                queue.addLast(Interval(interval.left, middle, interval.depth + 1))
+                queue.addLast(Interval(middle, interval.right, interval.depth + 1))
             }
             reachedLimit?.let { throw BudgetReached(it) }
-        }
-
-        private fun refine(left: Sample, right: Sample, depth: Int) {
-            cancellationCheck()
-            maximumDepthReached = maxOf(maximumDepthReached, depth)
-            val middleX = midpoint(left.x, right.x)
-            if (middleX <= left.x || middleX >= right.x) {
-                record(left)
-                record(right)
-                return
-            }
-            val middle = evaluate(middleX)
-            val leftDefined = left.y != null
-            val middleDefined = middle.y != null
-            val rightDefined = right.y != null
-
-            val containsGap = !leftDefined || !middleDefined || !rightDefined
-            if (!leftDefined && !middleDefined && !rightDefined) {
-                record(left)
-                record(middle)
-                record(right)
-                return
-            }
-            val errorPixels = if (!containsGap) chordErrorPixels(left.y!!, middle.y!!, right.y!!) else Double.POSITIVE_INFINITY
-            val needsRefinement = containsGap || errorPixels > budget.chordTolerancePixels
-
-            if (!needsRefinement) {
-                record(left)
-                record(middle)
-                record(right)
-                return
-            }
-
-            if (depth >= budget.maximumSubdivisionDepth) {
-                record(left)
-                record(middle)
-                record(right)
-                if (leftDefined && middleDefined && rightDefined) {
-                    // The samples did not settle continuity within the configured budget.
-                    samples[middle.x] = Sample(middle.x, null)
-                }
-                reachedLimit = FunctionGraphBudgetLimit.SUBDIVISION_DEPTH
-                return
-            }
-
-            subdivisionCount++
-            refine(left, middle, depth + 1)
-            refine(middle, right, depth + 1)
         }
 
         private fun evaluate(x: Double): Sample {
@@ -160,13 +195,6 @@ class FunctionGraphSampler {
             return Sample(x, y).also { samples[x] = it }
         }
 
-        private fun record(sample: Sample) {
-            if (sample.x !in samples) {
-                if (samples.size >= budget.maximumPointsPerFunction) throw BudgetReached(FunctionGraphBudgetLimit.POINTS)
-                samples[sample.x] = sample
-            }
-        }
-
         fun toSegments(): List<FunctionGraphSegment> {
             val result = mutableListOf<FunctionGraphSegment>()
             var current = mutableListOf<FunctionGraphPoint>()
@@ -181,13 +209,63 @@ class FunctionGraphSampler {
                 }
                 current = mutableListOf()
             }
+            var previous: Sample? = null
             for ((x, sample) in samples) {
+                previous?.let { if (UnresolvedInterval(it.x, x) in unresolved) finish() }
                 if (sample.y == null) finish()
                 else current += FunctionGraphPoint(x, sample.y)
+                previous = sample
             }
             finish()
             return result
         }
+
+        fun representedXFraction(segments: List<FunctionGraphSegment>): Double {
+            val span = request.xRange.maximum - request.xRange.minimum
+            if (!span.isFinite() || span <= 0.0) return 0.0
+            val represented = segments.sumOf { it.points.last().x - it.points.first().x }
+            return (represented / span).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
+        }
+
+        fun visibleXFraction(segments: List<FunctionGraphSegment>): Double {
+            val xSpan = request.xRange.maximum - request.xRange.minimum
+            if (!xSpan.isFinite() || xSpan <= 0.0) return 0.0
+            var visibleLength = 0.0
+            val yMinimum = request.yRange.minimum
+            val yMaximum = request.yRange.maximum
+            for (segment in segments) for ((first, second) in segment.points.zipWithNext()) {
+                val dx = second.x - first.x
+                if (!dx.isFinite() || dx <= 0.0) continue
+                var start = 0.0
+                var end = 1.0
+                if (first.y < yMinimum) {
+                    if (second.y < yMinimum) continue
+                    start = boundaryParameter(first.y, second.y, yMinimum) ?: continue
+                } else if (first.y > yMaximum) {
+                    if (second.y > yMaximum) continue
+                    start = boundaryParameter(first.y, second.y, yMaximum) ?: continue
+                }
+                if (second.y < yMinimum) {
+                    end = boundaryParameter(first.y, second.y, yMinimum) ?: continue
+                } else if (second.y > yMaximum) {
+                    end = boundaryParameter(first.y, second.y, yMaximum) ?: continue
+                }
+                if (end > start) visibleLength += dx * (end - start)
+            }
+            return (visibleLength / xSpan).takeIf(Double::isFinite)?.coerceIn(0.0, 1.0) ?: 0.0
+        }
+
+        private fun boundaryParameter(firstY: Double, secondY: Double, boundary: Double): Double? {
+            val scale = maxOf(abs(firstY), abs(secondY), abs(boundary))
+            if (!scale.isFinite() || scale == 0.0) return null
+            val denominator = secondY / scale - firstY / scale
+            if (!denominator.isFinite() || denominator == 0.0) return null
+            return ((boundary / scale - firstY / scale) / denominator)
+                .takeIf(Double::isFinite)?.coerceIn(0.0, 1.0)
+        }
+
+        private fun TreeMap<Double, Sample>.firstKeyOrNull(): Double? = if (isEmpty()) null else firstKey()
+        private fun TreeMap<Double, Sample>.lastKeyOrNull(): Double? = if (isEmpty()) null else lastKey()
 
         private fun chordErrorPixels(leftY: Double, middleY: Double, rightY: Double): Double {
             val min = request.yRange.minimum
@@ -219,11 +297,14 @@ class FunctionGraphSampler {
         }
     }
 
+    private data class Interval(val left: Sample, val right: Sample, val depth: Int)
+    private data class UnresolvedInterval(val minimumX: Double, val maximumX: Double)
     private data class Sample(val x: Double, val y: Double?)
 
     internal class EvaluationCounter(private val maximum: Int) {
         var count: Int = 0
             private set
+        val remaining: Int get() = maximum - count
 
         fun consume() {
             if (count >= maximum) throw BudgetReached(FunctionGraphBudgetLimit.TOTAL_EVALUATIONS)

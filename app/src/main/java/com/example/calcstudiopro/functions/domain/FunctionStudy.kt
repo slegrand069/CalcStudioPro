@@ -59,6 +59,11 @@ class FunctionSlot private constructor(
     val isVisible: Boolean,
     internal val compiledExpression: CompiledMathExpression?
 ) {
+    /** Parameter references from the validated expression only; drafts never affect graph inputs. */
+    val usedParameters: Set<Char> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        Collections.unmodifiableSet(validatedExpression?.let(FunctionParameterScanner::scan).orEmpty())
+    }
+
     val isDraftModified: Boolean
         get() = draft != (validatedExpression ?: "")
 
@@ -435,7 +440,7 @@ sealed interface StudyParameterUpdate {
 }
 
 /** Mirrors the expression lexer's function/constant rules to report only actual parameter letters. */
-private object FunctionParameterScanner {
+internal object FunctionParameterScanner {
     private val functions = listOf(
         "asin", "acos", "atan", "sqrt", "cbrt", "floor", "ceil", "sign", "sin", "cos", "tan",
         "min", "max", "root", "pow", "log", "ln", "exp", "abs"

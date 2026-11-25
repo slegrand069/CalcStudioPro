@@ -100,6 +100,21 @@ class FunctionGraphSelectionTest {
         assertEquals(7.0, controller.state.value.marker!!.displayedY!!, 0.0)
     }
 
+    @Test fun clearingSelectionRemovesMarkerAndRejectsItsLateEvaluation() {
+        val controller = FunctionGraphSelectionController(48.0)
+        val marker = controller.select(
+            listOf(hit(FunctionSlotId.F1, 0.25)), ScreenPoint(50.0, 50.0),
+            FunctionGraphSelectionContext(3, 1, 0), 1
+        )!!
+        controller.setEvaluationRequest(marker, 21)
+
+        controller.clear()
+
+        assertNull(controller.state.value.marker)
+        assertFalse(controller.applyEvaluation(21, FunctionSlotId.F1, 0.25, 3, FunctionGraphMarkerEvaluation.Confirmed(7.0)))
+        assertNull(controller.state.value.marker)
+    }
+
     @Test fun contentRevisionPreservesSelectedXUntilTheSlotIsRemoved() {
         val controller = FunctionGraphSelectionController(48.0)
         val marker = controller.select(listOf(hit(FunctionSlotId.F4, 0.375)), ScreenPoint(40.0, 40.0),

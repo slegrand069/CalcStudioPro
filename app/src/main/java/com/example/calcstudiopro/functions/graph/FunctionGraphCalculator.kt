@@ -58,6 +58,13 @@ class FunctionGraphCalculator(
         val results = ArrayList<FunctionGraphResult>(request.functions.size)
         for (function in request.functions) {
             cancellationCheck()
+            if (!function.isVisible) {
+                results += FunctionGraphResult(
+                    function.id, emptyList(), FunctionGraphStatus.Empty,
+                    FunctionGraphDiagnostics(0, 0, 0, 0)
+                )
+                continue
+            }
             // A bad source or a difficult curve is isolated to this slot. Cancellation remains global.
             results += sampler.sample(request, function, counter, cancellationCheck)
         }

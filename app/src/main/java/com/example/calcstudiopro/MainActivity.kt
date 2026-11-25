@@ -67,6 +67,8 @@ import com.example.calcstudiopro.arithmetic.ArithmeticRoute
 import com.example.calcstudiopro.arithmetic.ArithmeticViewModel
 import com.example.calcstudiopro.functions.FunctionStudyRoute
 import com.example.calcstudiopro.functions.FunctionStudyViewModel
+import com.example.calcstudiopro.functions.graph.FunctionGraphViewportMemory
+import com.example.calcstudiopro.functions.graph.ui.FunctionGraphRoute
 import com.example.calcstudiopro.functions.FunctionExpressionEditorRoute
 import com.example.calcstudiopro.functions.FunctionStudyManagementRoute
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
@@ -128,6 +130,7 @@ class MainActivity : ComponentActivity() {
                 val functionStudyViewModel: FunctionStudyViewModel = viewModel(
                     factory = remember { FunctionStudyViewModel.Factory(functionStudyStore) }
                 )
+                val functionGraphViewportMemory: FunctionGraphViewportMemory = viewModel()
                 val appSettings by settingsViewModel.state.collectAsState()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
                 var isModeSelectorVisible by remember { mutableStateOf(false) }
@@ -201,7 +204,15 @@ class MainActivity : ComponentActivity() {
                                 functionStudyViewModel,
                                 onBack = { navController.popBackStack() },
                                 onOpenStudies = { navController.navigate("functions/studies") },
-                                onOpenEditor = { slotId -> navController.navigate("functions/edit/${slotId.code}") }
+                                onOpenEditor = { slotId -> navController.navigate("functions/edit/${slotId.code}") },
+                                onOpenGraph = { navController.navigate("functions/graph") }
+                            )
+                        }
+                        composable("functions/graph") {
+                            FunctionGraphRoute(
+                                studyViewModel = functionStudyViewModel,
+                                viewportMemory = functionGraphViewportMemory,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable("functions/studies") {

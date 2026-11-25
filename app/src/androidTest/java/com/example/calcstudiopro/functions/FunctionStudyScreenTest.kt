@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
@@ -53,7 +54,7 @@ class FunctionStudyScreenTest {
             composeRule.onNodeWithTag("function-slot-${slotId.code}").assertIsDisplayed()
             composeRule.onNodeWithTag("function-eye-${slotId.code}").assertIsDisplayed()
         }
-        composeRule.onNodeWithTag("functions-graph").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithTag("functions-graph").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithTag("functions-table").assertIsDisplayed().assertIsNotEnabled()
     }
 

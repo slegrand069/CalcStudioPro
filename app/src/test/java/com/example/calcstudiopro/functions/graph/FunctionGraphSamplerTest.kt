@@ -33,8 +33,8 @@ class FunctionGraphSamplerTest {
     @Test fun aStraightLineNeedsNoAdaptiveSubdivisions() {
         val result = sample("x")
         assertEquals(0, result.diagnostics.subdivisionCount)
-        // 320px / 8px gives 40 initial intervals with their midpoints: 81 evaluations.
-        assertEquals(81, result.diagnostics.evaluationCount)
+        // 320px / 2px gives 160 initial intervals with midpoints: 321 evaluations.
+        assertEquals(321, result.diagnostics.evaluationCount)
     }
 
     @Test fun refinementRespondsToPlotResolutionAndVerticalZoom() {
@@ -123,7 +123,11 @@ class FunctionGraphSamplerTest {
         val result = calculator().calculateDirect(request(inputs, budget = budget))
         assertEquals(8, result.totalEvaluationCount)
         assertTrue(result.results.any { it.status is FunctionGraphStatus.BudgetExceeded || it.status is FunctionGraphStatus.Partial })
-        assertTrue(result.results.take(1).any { it.segments.isNotEmpty() })
+        // A tiny budget may be insufficient to resolve even one drawable interval. In that case
+        // an explicit empty budget result is safer than connecting unresolved endpoints.
+        assertTrue(result.results.take(1).any {
+            it.segments.isNotEmpty() || it.status is FunctionGraphStatus.BudgetExceeded || it.status is FunctionGraphStatus.Partial
+        })
     }
 
     @Test fun sixRegularFunctionsAreCalculatedIndependently() {

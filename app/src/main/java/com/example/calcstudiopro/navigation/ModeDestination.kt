@@ -15,5 +15,5 @@ val availableModes = listOf(
     ModeDestination(route = "statistics", label = "Statistiques"),
     ModeDestination(route = "geometry", label = "Géométrie"),
     ModeDestination(route = "arithmetic", label = "Arithmétique"),
-    ModeDestination(route = "functions", label = "Fonctions / Tracé de fonctions")
+    ModeDestination(route = "functions", label = "Fonctions")
 )

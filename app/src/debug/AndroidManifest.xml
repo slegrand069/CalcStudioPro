@@ -4,6 +4,7 @@
             android:name="com.example.calcstudiopro.functions.graph.ui.FunctionGraphCanvasDemoActivity"
             android:exported="true"
             android:label="Aperçu grapheur Fonctions"
+            android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|smallestScreenSize"
             android:theme="@style/Theme.CalcStudioPro" />
     </application>

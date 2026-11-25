@@ -46,13 +46,24 @@ class FunctionGraphCalculatorTest {
         assertTrue(deferred.isCancelled)
     }
 
-    private fun request(generation: Long) = FunctionGraphRequest(
+    @Test fun hiddenFunctionIsNotEvaluated() = runBlocking {
+        val compiled = (engine.compile("sin(1/x)") as ExpressionCompilation.Success).expression
+        val hidden = FunctionGraphInput(FunctionSlotId.F1, compiled, isVisible = false, parameterDependencies = emptySet())
+        val calculator = FunctionGraphCalculator(CoroutineScope(SupervisorJob() + kotlinx.coroutines.Dispatchers.Unconfined))
+        val result = calculator.submit(request(12, hidden)).await() as FunctionGraphCalculationOutcome.Completed
+        val function = result.result.results.single()
+        assertEquals(0, function.diagnostics.evaluationCount)
+        assertEquals(FunctionGraphStatus.Empty, function.status)
+        assertTrue(function.segments.isEmpty())
+    }
+
+    private fun request(generation: Long, input: FunctionGraphInput = FunctionGraphInput(FunctionSlotId.F1, (engine.compile("x^2") as ExpressionCompilation.Success).expression)) = FunctionGraphRequest(
         generation = generation,
         xRange = AxisRange(-5.0, 5.0),
         yRange = AxisRange(-5.0, 5.0),
         plotWidthPixels = 320,
         plotHeightPixels = 240,
-        functions = listOf(FunctionGraphInput(FunctionSlotId.F1, (engine.compile("x^2") as ExpressionCompilation.Success).expression))
+        functions = listOf(input)
     )
 
     private class QueuedDispatcher : CoroutineDispatcher() {

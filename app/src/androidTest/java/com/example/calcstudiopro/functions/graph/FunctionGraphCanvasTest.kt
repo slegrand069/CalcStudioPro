@@ -20,7 +20,9 @@ import com.example.calcstudiopro.functions.graph.ui.FunctionGraphMarkerPresentat
 import com.example.calcstudiopro.statistics.graph.model.AxisRange
 import com.example.calcstudiopro.statistics.graph.model.GraphViewport
 import com.example.calcstudiopro.ui.theme.CalcStudioProTheme
-import com.example.calcstudiopro.ui.theme.SurfaceDark
+import com.example.calcstudiopro.ui.theme.BackgroundDark
+import com.example.calcstudiopro.ui.theme.BackgroundLight
+import com.example.calcstudiopro.ui.theme.OnSurfaceDark
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -47,7 +49,7 @@ class FunctionGraphCanvasTest {
         val image = node.captureToImage()
         val pixels = image.toPixelMap()
         assertTrue(image.width > 0 && image.height > 0)
-        assertEquals(Color.White.toArgb(), pixels[0, 0].toArgb())
+        assertEquals(BackgroundLight.toArgb(), pixels[0, 0].toArgb())
     }
 
     @Test fun canvasDrawsSixActiveVisibleCurvesWithTheirSavedColors() {
@@ -79,7 +81,7 @@ class FunctionGraphCanvasTest {
         }
     }
 
-    @Test fun canvasUsesDarkSurfaceAndContrastPreparedForDarkBackground() {
+    @Test fun canvasDrawsTheDarkThemeBackgroundAndUsesItForContrastPreparation() {
         composeRule.setContent {
             CalcStudioProTheme(darkTheme = true) {
                 FunctionGraphCanvas(
@@ -92,7 +94,36 @@ class FunctionGraphCanvasTest {
             }
         }
         val image = composeRule.onNodeWithTag("function-canvas-test").captureToImage()
-        assertEquals(SurfaceDark.toArgb(), image.toPixelMap()[0, 0].toArgb())
+        val pixels = image.toPixelMap()
+        assertEquals(BackgroundDark.toArgb(), pixels[0, 0].toArgb())
+        val density = image.width / 320f
+        val axisX = ((56f + 126f) * density).roundToInt()
+        val axisY = ((12f + 85f) * density).roundToInt()
+        assertTrue("The zero axis must use the dark theme foreground", (-2..2).any { dy ->
+            (-2..2).any { dx -> pixels[axisX + dx, axisY + dy].toArgb() == OnSurfaceDark.toArgb() }
+        })
+    }
+
+    @Test fun canvasDrawsTheExactSavedPaletteColorInDarkMode() {
+        composeRule.setContent {
+            CalcStudioProTheme(darkTheme = true) {
+                FunctionGraphCanvas(
+                    model = singleVisibleCurveModel(FunctionColor.SUN_YELLOW, y = 0.75),
+                    viewport = viewport,
+                    gridMode = FunctionGridMode.NONE,
+                    modifier = androidx.compose.ui.Modifier.size(320.dp, 220.dp),
+                    testTag = "saved-color-curve"
+                )
+            }
+        }
+        val image = composeRule.onNodeWithTag("saved-color-curve").captureToImage()
+        val pixels = image.toPixelMap()
+        val density = image.width / 320f
+        val x = (180f * density).roundToInt()
+        val y = (12f + (1f - (0.75f + 4f) / 8f) * 170f) * density
+        assertTrue("The saved palette color must be rendered unchanged", (-2..2).any { dy ->
+            (-2..2).any { dx -> pixels[x + dx, y.roundToInt() + dy].toArgb() == FunctionColor.SUN_YELLOW.argb.toInt() }
+        })
     }
 
     @Test fun canvasActuallyDrawsContrastHaloUnderSavedNavyCurve() {
@@ -185,7 +216,7 @@ class FunctionGraphCanvasTest {
         }
         val image = composeRule.onNodeWithTag("function-canvas-test").captureToImage()
         val pixels = image.toPixelMap()
-        val background = Color.White.toArgb()
+        val background = BackgroundLight.toArgb()
         val curveColor = FunctionColor.RASPBERRY.argb.toInt()
         val centerX = image.width / 2
         val density = image.height / 220f

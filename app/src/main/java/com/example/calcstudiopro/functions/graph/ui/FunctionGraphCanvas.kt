@@ -66,7 +66,9 @@ fun FunctionGraphCanvas(
     testTag: String = "function-graph-canvas"
 ) {
     val colors = MaterialTheme.colorScheme
-    val background = colors.surface
+    // The graph uses the theme background, keeping its validated near-black dark surface
+    // while remaining light when the application is in light mode.
+    val background = colors.background
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     BoxWithConstraints(modifier) {
