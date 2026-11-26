@@ -13,6 +13,33 @@ sealed interface FunctionValueTableGenerationMode {
     data class CustomValues(val text: String) : FunctionValueTableGenerationMode
 }
 
+enum class FunctionValueTableModeId { INTERVAL_AND_STEP, INTERVAL_AND_COUNT, CUSTOM_VALUES }
+
+data class FunctionValueTableRetainedModeInputs(
+    val intervalAndStep: FunctionValueTableGenerationMode.IntervalAndStep =
+        FunctionValueTableGenerationMode.IntervalAndStep(-2.0, 2.0, 0.5),
+    val intervalAndCount: FunctionValueTableGenerationMode.IntervalAndCount =
+        FunctionValueTableGenerationMode.IntervalAndCount(-2.0, 2.0, 9),
+    val customValues: FunctionValueTableGenerationMode.CustomValues =
+        FunctionValueTableGenerationMode.CustomValues("0")
+) {
+    fun mode(id: FunctionValueTableModeId): FunctionValueTableGenerationMode = when (id) {
+        FunctionValueTableModeId.INTERVAL_AND_STEP -> intervalAndStep
+        FunctionValueTableModeId.INTERVAL_AND_COUNT -> intervalAndCount
+        FunctionValueTableModeId.CUSTOM_VALUES -> customValues
+    }
+
+    fun with(mode: FunctionValueTableGenerationMode): FunctionValueTableRetainedModeInputs = when (mode) {
+        is FunctionValueTableGenerationMode.IntervalAndStep -> copy(intervalAndStep = mode)
+        is FunctionValueTableGenerationMode.IntervalAndCount -> copy(intervalAndCount = mode)
+        is FunctionValueTableGenerationMode.CustomValues -> copy(customValues = mode)
+    }
+
+    companion object {
+        fun from(mode: FunctionValueTableGenerationMode) = FunctionValueTableRetainedModeInputs().with(mode)
+    }
+}
+
 data class FunctionValueTableSlotSelection(val slotId: FunctionSlotId, val selected: Boolean)
 
 /** Immutable, study-ready settings. Selection order is always the stable f1..f6 order. */
@@ -20,8 +47,16 @@ class FunctionValueTableSettings(
     val generationMode: FunctionValueTableGenerationMode = FunctionValueTableGenerationMode.IntervalAndStep(-2.0, 2.0, 0.5),
     selectedSlots: Set<FunctionSlotId> = emptySet(),
     val decimalPlaces: Int = 4,
-    val scientificNotation: Boolean = true
+    val scientificNotation: Boolean = true,
+    retainedModeInputs: FunctionValueTableRetainedModeInputs = FunctionValueTableRetainedModeInputs.from(generationMode)
 ) {
+    /** Keeps each mode's last inputs when another mode is selected. */
+    val retainedModeInputs: FunctionValueTableRetainedModeInputs = retainedModeInputs.with(generationMode)
+    val activeMode: FunctionValueTableModeId = when (generationMode) {
+        is FunctionValueTableGenerationMode.IntervalAndStep -> FunctionValueTableModeId.INTERVAL_AND_STEP
+        is FunctionValueTableGenerationMode.IntervalAndCount -> FunctionValueTableModeId.INTERVAL_AND_COUNT
+        is FunctionValueTableGenerationMode.CustomValues -> FunctionValueTableModeId.CUSTOM_VALUES
+    }
     val slots: List<FunctionValueTableSlotSelection> = Collections.unmodifiableList(
         FunctionSlotId.ordered.map { FunctionValueTableSlotSelection(it, it in selectedSlots) }
     )
@@ -33,16 +68,33 @@ class FunctionValueTableSettings(
         generationMode: FunctionValueTableGenerationMode = this.generationMode,
         selectedSlots: Set<FunctionSlotId> = this.selectedSlots,
         decimalPlaces: Int = this.decimalPlaces,
-        scientificNotation: Boolean = this.scientificNotation
-    ) = FunctionValueTableSettings(generationMode, selectedSlots, decimalPlaces, scientificNotation)
+        scientificNotation: Boolean = this.scientificNotation,
+        retainedModeInputs: FunctionValueTableRetainedModeInputs = this.retainedModeInputs
+    ) = FunctionValueTableSettings(generationMode, selectedSlots, decimalPlaces, scientificNotation, retainedModeInputs)
+
+    fun selectMode(mode: FunctionValueTableModeId): FunctionValueTableSettings =
+        copy(generationMode = retainedModeInputs.mode(mode))
+
+    fun validationError(): FunctionValueTableValidationError? {
+        if (decimalPlaces !in 0..12) return FunctionValueTableValidationError.InvalidDecimalPlaces
+        val modes = listOf(
+            retainedModeInputs.intervalAndStep,
+            retainedModeInputs.intervalAndCount,
+            retainedModeInputs.customValues
+        )
+        return modes.firstNotNullOfOrNull { mode ->
+            (FunctionValueTableAbscissaGenerator.generate(mode) as? FunctionValueTableAbscissas.Invalid)?.error
+        }
+    }
 
     override fun equals(other: Any?): Boolean = other is FunctionValueTableSettings &&
         generationMode == other.generationMode && selectedSlots == other.selectedSlots &&
-        decimalPlaces == other.decimalPlaces && scientificNotation == other.scientificNotation
+        decimalPlaces == other.decimalPlaces && scientificNotation == other.scientificNotation &&
+        retainedModeInputs == other.retainedModeInputs
 
-    override fun hashCode(): Int = listOf(generationMode, selectedSlots, decimalPlaces, scientificNotation).hashCode()
+    override fun hashCode(): Int = listOf(generationMode, selectedSlots, decimalPlaces, scientificNotation, retainedModeInputs).hashCode()
 
-    override fun toString(): String = "FunctionValueTableSettings(generationMode=$generationMode, selectedSlots=$selectedSlots, decimalPlaces=$decimalPlaces, scientificNotation=$scientificNotation)"
+    override fun toString(): String = "FunctionValueTableSettings(generationMode=$generationMode, selectedSlots=$selectedSlots, decimalPlaces=$decimalPlaces, scientificNotation=$scientificNotation, retainedModeInputs=$retainedModeInputs)"
 }
 
 sealed interface FunctionValueTableValidationError {

@@ -8,6 +8,11 @@ import com.example.calcstudiopro.functions.domain.FunctionStudyRestoreResult
 import com.example.calcstudiopro.functions.domain.FunctionStudyRevision
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.domain.FunctionColor
+import com.example.calcstudiopro.functions.table.FunctionValueTableGenerationMode
+import com.example.calcstudiopro.functions.table.FunctionValueTableModeId
+import com.example.calcstudiopro.functions.table.FunctionValueTableRetainedModeInputs
+import com.example.calcstudiopro.functions.table.FunctionValueTableSettings
+import com.example.calcstudiopro.functions.table.FunctionValueTableSlotSelection
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -132,7 +137,8 @@ private data class PersistedStudy(
     val name: String?,
     val angleMode: String,
     val slots: List<PersistedSlot>,
-    val parameters: Map<Char, Double>
+    val parameters: Map<Char, Double>,
+    val valueTableSettings: FunctionValueTableSettings
 ) {
     companion object {
         fun from(revision: FunctionStudyRevision) = PersistedStudy(
@@ -143,7 +149,8 @@ private data class PersistedStudy(
             slots = revision.slots.map {
                 PersistedSlot(it.id.code, it.validatedExpression, it.draft, it.color.name, it.isVisible)
             },
-            parameters = revision.parameters.toMap()
+            parameters = revision.parameters.toMap(),
+            valueTableSettings = revision.valueTableSettings
         )
     }
 }
@@ -417,13 +424,15 @@ class FunctionStudyStore private constructor(
 
 private object FunctionStudyCodec {
     private const val MAGIC = 0x43535046 // CSPF
-    private const val VERSION = 1
+    private const val VERSION = 2
+    private const val LEGACY_VERSION = 1
     private const val ENVELOPE_SIZE = 20
     private const val MAX_FILE_BYTES = 4 * 1024 * 1024
     private const val MAX_STRING_BYTES = 1024 * 1024
     private const val MAX_PARAMETERS = 512
 
     fun encode(revision: FunctionStudyRevision): ByteArray {
+        validateValueTableSettings(revision.valueTableSettings, revision.slots)
         val record = PersistedStudy.from(revision)
         val payload = ByteArrayOutputStream().use { bytes ->
             DataOutputStream(bytes).use { output ->
@@ -444,6 +453,7 @@ private object FunctionStudyCodec {
                     output.writeChar(name.code)
                     output.writeDouble(value)
                 }
+                output.writeTableSettings(record.valueTableSettings)
             }
             bytes.toByteArray()
         }
@@ -468,7 +478,9 @@ private object FunctionStudyCodec {
             DataInputStream(ByteArrayInputStream(bytes)).use { input ->
                 if (input.readInt() != MAGIC) corrupt("Invalid file signature")
                 val version = input.readInt()
-                if (version != VERSION) fault(StudyStoreError.INCOMPATIBLE_VERSION, "Unsupported version $version")
+                if (version != VERSION && version != LEGACY_VERSION) {
+                    fault(StudyStoreError.INCOMPATIBLE_VERSION, "Unsupported version $version")
+                }
                 val payloadSize = input.readInt()
                 if (payloadSize < 0 || payloadSize > MAX_FILE_BYTES || payloadSize != input.available() - Long.SIZE_BYTES) {
                     corrupt("Invalid payload length")
@@ -479,7 +491,7 @@ private object FunctionStudyCodec {
                 if (input.available() != 0) corrupt("Trailing file data")
                 val actualChecksum = CRC32().apply { update(payload) }.value
                 if (actualChecksum != expectedChecksum) corrupt("Checksum mismatch")
-                return decodePayload(payload)
+                return decodePayload(payload, version)
             }
         } catch (error: StudyStoreFault) {
             throw error
@@ -492,7 +504,7 @@ private object FunctionStudyCodec {
         }
     }
 
-    private fun decodePayload(payload: ByteArray): FunctionStudyRevision =
+    private fun decodePayload(payload: ByteArray, version: Int): FunctionStudyRevision =
         DataInputStream(ByteArrayInputStream(payload)).use { input ->
             val idText = input.readString()
             if (idText.isBlank()) corrupt("Missing study ID")
@@ -520,8 +532,15 @@ private object FunctionStudyCodec {
                 val value = input.readDouble()
                 if (parameters.put(nameChar, value) != null) corrupt("Duplicate parameter")
             }
+            val tableSettings = if (version == LEGACY_VERSION) FunctionValueTableSettings() else input.readTableSettings()
+            validateValueTableSettings(tableSettings, slots.map { slot ->
+                com.example.calcstudiopro.functions.domain.FunctionSlotRevision(
+                    FunctionSlotId.entries.first { it.code == slot.id }, slot.validatedExpression, slot.draft,
+                    enumValue<FunctionColor>(slot.color), slot.isVisible
+                )
+            }, isCorrupt = true)
             if (input.available() != 0) corrupt("Trailing payload data")
-            val record = PersistedStudy(idText, kind, name, angleMode, slots, parameters)
+            val record = PersistedStudy(idText, kind, name, angleMode, slots, parameters, tableSettings)
             FunctionStudyRevision(
                 FunctionStudyId(record.id),
                 enumValue<FunctionStudyKind>(record.kind),
@@ -536,8 +555,51 @@ private object FunctionStudyCodec {
                     )
                 },
                 record.parameters,
-                enumValue<com.example.calcstudiopro.domain.functions.FunctionAngleMode>(record.angleMode)
+                enumValue<com.example.calcstudiopro.domain.functions.FunctionAngleMode>(record.angleMode),
+                record.valueTableSettings
             )
+    }
+
+    private fun DataOutputStream.writeTableSettings(settings: FunctionValueTableSettings) {
+        writeString(settings.activeMode.name)
+        val retained = settings.retainedModeInputs
+        writeDouble(retained.intervalAndStep.xMin)
+        writeDouble(retained.intervalAndStep.xMax)
+        writeDouble(retained.intervalAndStep.step)
+        writeDouble(retained.intervalAndCount.xMin)
+        writeDouble(retained.intervalAndCount.xMax)
+        writeInt(retained.intervalAndCount.pointCount)
+        writeString(retained.customValues.text)
+        FunctionSlotId.ordered.forEach { id -> writeBooleanByte(settings.selectedSlots.contains(id)) }
+        writeInt(settings.decimalPlaces)
+        writeBooleanByte(settings.scientificNotation)
+    }
+
+    private fun DataInputStream.readTableSettings(): FunctionValueTableSettings {
+        val active = enumValue<FunctionValueTableModeId>(readString())
+        val retained = FunctionValueTableRetainedModeInputs(
+            intervalAndStep = FunctionValueTableGenerationMode.IntervalAndStep(readDouble(), readDouble(), readDouble()),
+            intervalAndCount = FunctionValueTableGenerationMode.IntervalAndCount(readDouble(), readDouble(), readInt()),
+            customValues = FunctionValueTableGenerationMode.CustomValues(readString())
+        )
+        val selected = FunctionSlotId.ordered.filter { readBooleanByte() }.toSet()
+        val decimals = readInt()
+        val scientific = readBooleanByte()
+        return FunctionValueTableSettings(retained.mode(active), selected, decimals, scientific, retained)
+    }
+
+    private fun validateValueTableSettings(
+        settings: FunctionValueTableSettings,
+        slots: List<com.example.calcstudiopro.functions.domain.FunctionSlotRevision>,
+        isCorrupt: Boolean = false
+    ) {
+        val detail = when {
+            settings.validationError() != null -> "Invalid value-table settings: ${settings.validationError()}"
+            settings.selectedSlots.any { selected -> slots.none { it.id == selected && it.validatedExpression != null } } ->
+                "A selected value-table slot has no validated expression"
+            else -> null
+        } ?: return
+        if (isCorrupt) corrupt(detail) else fault(StudyStoreError.INVALID_STUDY, detail)
     }
 
     private inline fun <reified T : Enum<T>> enumValue(value: String): T =
@@ -584,5 +646,6 @@ private fun FunctionStudyRevision.copyWithName(newName: String) = FunctionStudyR
     name = newName,
     slots = slots,
     parameters = parameters,
-    angleMode = angleMode
+    angleMode = angleMode,
+    valueTableSettings = valueTableSettings
 )

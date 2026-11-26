@@ -15,6 +15,24 @@ object FunctionValueTableCalculator {
             is FunctionValueTableAbscissas.Invalid -> return FunctionValueTableCalculation.Invalid(generated.error)
             is FunctionValueTableAbscissas.Valid -> generated.values
         }
+        return calculate(study, settings, abscissas) {}
+    }
+
+    internal fun calculate(
+        study: FunctionStudy,
+        settings: FunctionValueTableSettings,
+        abscissas: List<Double>,
+        cancellationCheck: () -> Unit
+    ): FunctionValueTableCalculation {
+        if (settings.decimalPlaces !in 0..12) {
+            return FunctionValueTableCalculation.Invalid(FunctionValueTableValidationError.InvalidDecimalPlaces)
+        }
+        if (abscissas.size > FunctionValueTableAbscissaGenerator.MAX_ROWS) {
+            return FunctionValueTableCalculation.Invalid(FunctionValueTableValidationError.TooManyRows)
+        }
+        if (abscissas.any { !it.isFinite() }) {
+            return FunctionValueTableCalculation.Invalid(FunctionValueTableValidationError.NonFiniteGeneratedAbscissa(1))
+        }
         val selected = FunctionSlotId.ordered.filter { it in settings.selectedSlots }
         val empty = selected.firstOrNull { study.slot(it).compiledExpression == null }
         if (empty != null) return FunctionValueTableCalculation.Invalid(FunctionValueTableValidationError.EmptySelectedSlot(empty))
@@ -25,6 +43,7 @@ object FunctionValueTableCalculator {
             val compiled = requireNotNull(slot.compiledExpression)
             val cells = ArrayList<FunctionValueTableCell>(abscissas.size)
             for (x in abscissas) {
+                cancellationCheck()
                 cells += when (val evaluation = compiled.evaluate(x, study.parameters.values, study.angleMode)) {
                     is ExpressionEvaluation.Success -> FunctionValueTableCell.Value(evaluation.value)
                     is ExpressionEvaluation.Failure -> when (val error = evaluation.error) {

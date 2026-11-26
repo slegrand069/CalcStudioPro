@@ -6,6 +6,7 @@ import com.example.calcstudiopro.domain.functions.ExpressionEvaluation
 import com.example.calcstudiopro.domain.functions.FunctionAngleMode
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
 import com.example.calcstudiopro.domain.functions.MathExpressionError
+import com.example.calcstudiopro.functions.table.FunctionValueTableSettings
 import java.util.Collections
 import java.util.UUID
 
@@ -256,21 +257,23 @@ class FunctionStudyRevision internal constructor(
     val name: String?,
     slots: List<FunctionSlotRevision>,
     parameters: Map<Char, Double>,
-    val angleMode: FunctionAngleMode
+    val angleMode: FunctionAngleMode,
+    val valueTableSettings: FunctionValueTableSettings = FunctionValueTableSettings()
 ) {
     val slots: List<FunctionSlotRevision> = Collections.unmodifiableList(slots.toList())
     val parameters: Map<Char, Double> = Collections.unmodifiableMap(LinkedHashMap(parameters))
 
     fun withKind(kind: FunctionStudyKind, name: String? = this.name): FunctionStudyRevision {
         require(kind != FunctionStudyKind.NAMED_STUDY || !name.isNullOrBlank())
-        return FunctionStudyRevision(studyId, kind, name, slots, parameters, angleMode)
+        return FunctionStudyRevision(studyId, kind, name, slots, parameters, angleMode, valueTableSettings)
     }
 
     override fun equals(other: Any?): Boolean = other is FunctionStudyRevision &&
         studyId == other.studyId && kind == other.kind && name == other.name &&
-        slots == other.slots && parameters == other.parameters && angleMode == other.angleMode
+        slots == other.slots && parameters == other.parameters && angleMode == other.angleMode &&
+        valueTableSettings == other.valueTableSettings
 
-    override fun hashCode(): Int = listOf(studyId, kind, name, slots, parameters, angleMode).hashCode()
+    override fun hashCode(): Int = listOf(studyId, kind, name, slots, parameters, angleMode, valueTableSettings).hashCode()
 }
 
 /** Immutable six-slot study model. Storage and lifecycle operations belong to a later layer. */
@@ -280,7 +283,8 @@ class FunctionStudy private constructor(
     val name: String?,
     slots: List<FunctionSlot>,
     val parameters: StudyParameters,
-    val angleMode: FunctionAngleMode
+    val angleMode: FunctionAngleMode,
+    val valueTableSettings: FunctionValueTableSettings = FunctionValueTableSettings()
 ) {
     val slots: List<FunctionSlot> = Collections.unmodifiableList(slots.toList())
 
@@ -306,34 +310,37 @@ class FunctionStudy private constructor(
     fun withVisibility(id: FunctionSlotId, visible: Boolean): FunctionStudy = replacing(slot(id).withVisibility(visible))
 
     fun withAngleMode(mode: FunctionAngleMode): FunctionStudy =
-        FunctionStudy(id, kind, name, slots, parameters, mode)
+        FunctionStudy(id, kind, name, slots, parameters, mode, valueTableSettings)
+
+    fun withValueTableSettings(settings: FunctionValueTableSettings): FunctionStudy =
+        FunctionStudy(id, kind, name, slots, parameters, angleMode, settings)
 
     /** Returns an in-memory working copy while preserving every user-editable value and the stable ID. */
     fun asWorkingSession(
         id: FunctionStudyId = this.id,
         name: String? = this.name
-    ): FunctionStudy = FunctionStudy(id, FunctionStudyKind.WORKING_SESSION, name, slots, parameters, angleMode)
+    ): FunctionStudy = FunctionStudy(id, FunctionStudyKind.WORKING_SESSION, name, slots, parameters, angleMode, valueTableSettings)
 
     /** Creates the durable named-study form of the current working snapshot. */
     fun asNamedStudy(name: String, id: FunctionStudyId = this.id): FunctionStudy {
         require(name.isNotBlank()) { "Named studies require a name" }
-        return FunctionStudy(id, FunctionStudyKind.NAMED_STUDY, name, slots, parameters, angleMode)
+        return FunctionStudy(id, FunctionStudyKind.NAMED_STUDY, name, slots, parameters, angleMode, valueTableSettings)
     }
 
     /** Creates a recovery snapshot without changing the active immutable study. */
     fun asRecoverySession(): FunctionStudy =
-        FunctionStudy(id, FunctionStudyKind.RECOVERY_SESSION, name, slots, parameters, angleMode)
+        FunctionStudy(id, FunctionStudyKind.RECOVERY_SESSION, name, slots, parameters, angleMode, valueTableSettings)
 
     fun withParameter(name: Char, value: Double): StudyParameterUpdate = when (val update = parameters.withValue(name, value)) {
         is ParameterUpdateResult.Updated -> StudyParameterUpdate.Updated(
-            FunctionStudy(id, kind, this.name, slots, update.parameters, angleMode)
+            FunctionStudy(id, kind, this.name, slots, update.parameters, angleMode, valueTableSettings)
         )
         is ParameterUpdateResult.Rejected -> StudyParameterUpdate.Rejected(update.error)
     }
 
     fun resetParameter(name: Char): StudyParameterUpdate = when (val update = parameters.reset(name)) {
         is ParameterUpdateResult.Updated -> StudyParameterUpdate.Updated(
-            FunctionStudy(id, kind, this.name, slots, update.parameters, angleMode)
+            FunctionStudy(id, kind, this.name, slots, update.parameters, angleMode, valueTableSettings)
         )
         is ParameterUpdateResult.Rejected -> StudyParameterUpdate.Rejected(update.error)
     }
@@ -341,7 +348,13 @@ class FunctionStudy private constructor(
     fun validateFunction(id: FunctionSlotId, engine: MathExpressionEngine): StudyValidationResult =
         when (val result = slot(id).validate(engine)) {
             is FunctionValidationResult.Accepted -> StudyValidationResult.Accepted(
-                replacing(result.slot), id, result.expression
+                replacing(result.slot).let { updated ->
+                    if (result.expression == null) {
+                        updated.withValueTableSettings(
+                            valueTableSettings.copy(selectedSlots = valueTableSettings.selectedSlots - id)
+                        )
+                    } else updated
+                }, id, result.expression
             )
             is FunctionValidationResult.Rejected -> StudyValidationResult.Rejected(this, id, result.error)
         }
@@ -355,14 +368,15 @@ class FunctionStudy private constructor(
         name = name,
         slots = slots.map(FunctionSlot::revision),
         parameters = parameters.values,
-        angleMode = angleMode
+        angleMode = angleMode,
+        valueTableSettings = valueTableSettings
     )
 
     fun hasUnsavedChangesSince(reference: FunctionStudyRevision): Boolean = revision() != reference
 
     private fun replacing(slot: FunctionSlot): FunctionStudy {
         val updated = slots.map { if (it.id == slot.id) slot else it }
-        return FunctionStudy(id, kind, name, updated, parameters, angleMode)
+        return FunctionStudy(id, kind, name, updated, parameters, angleMode, valueTableSettings)
     }
 
     companion object {
@@ -385,6 +399,14 @@ class FunctionStudy private constructor(
             }
             if (revision.kind == FunctionStudyKind.NAMED_STUDY && revision.name.isNullOrBlank()) {
                 return FunctionStudyRestoreResult.InvalidSnapshot("Named studies require a name")
+            }
+            revision.valueTableSettings.validationError()?.let {
+                return FunctionStudyRestoreResult.InvalidSnapshot("Invalid value-table settings: $it")
+            }
+            if (revision.valueTableSettings.selectedSlots.any { selected ->
+                    revision.slots.none { it.id == selected && it.validatedExpression != null }
+                }) {
+                return FunctionStudyRestoreResult.InvalidSnapshot("A selected value-table slot has no validated expression")
             }
             val restoredParameters = when (val result = StudyParameters.restore(revision.parameters)) {
                 is StudyParameterRestoreResult.Valid -> result.parameters
@@ -415,7 +437,8 @@ class FunctionStudy private constructor(
                     name = revision.name,
                     slots = restoredSlots,
                     parameters = restoredParameters,
-                    angleMode = revision.angleMode
+                    angleMode = revision.angleMode,
+                    valueTableSettings = revision.valueTableSettings
                 )
             }.fold(
                 onSuccess = FunctionStudyRestoreResult::Restored,

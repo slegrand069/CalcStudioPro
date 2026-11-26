@@ -9,6 +9,9 @@ import com.example.calcstudiopro.functions.domain.FunctionStudyKind
 import com.example.calcstudiopro.functions.domain.FunctionStudyRestoreResult
 import com.example.calcstudiopro.functions.domain.FunctionStudyRevision
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
+import com.example.calcstudiopro.functions.table.FunctionValueTableGenerationMode
+import com.example.calcstudiopro.functions.table.FunctionValueTableRetainedModeInputs
+import com.example.calcstudiopro.functions.table.FunctionValueTableSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,10 +24,92 @@ import java.nio.file.AccessDeniedException
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.Base64
 
 class FunctionStudyStoreTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
     private val engine = MathExpressionEngine()
+
+    @Test fun readsIndependentCspfV1FixtureWithDefaultsWithoutRewritingIt() {
+        val directory = temporaryFolder.newFolder("golden-v1").toPath()
+        val file = directory.resolve("working.cspf")
+        val fixture = Base64.getDecoder().decode(
+            "Q1NQRgAAAAEAAAC/AAAACWdvbGRlbi12MQAAAA9XT1JLSU5HX1NFU1NJT04AAAAAA1JBRAAAAAYAAAACZjEBAAAAA3grMQAAAAN4KzEAAAAEQkxVRQEAAAACZjIAAAAAAAAAAANSRUQBAAAAAmYzAAAAAAAAAAAFR1JFRU4BAAAAAmY0AAAAAAAAAAAFQU1CRVIBAAAAAmY1AAAAAAAAAAAGVklPTEVUAQAAAAJmNgAAAAAAAAAABENZQU4BAAAAAQBhQAQAAAAAAAAAAAAAFbuFWQ=="
+        )
+        Files.write(file, fixture)
+        val loaded = success(FunctionStudyStore(directory, engine).loadWorkingSession())!!
+        assertEquals(FunctionStudyId("golden-v1"), loaded.id)
+        assertEquals("x+1", loaded.slot(FunctionSlotId.F1).validatedExpression)
+        assertEquals(2.5, loaded.parameters.value('a'), 0.0)
+        assertEquals(FunctionValueTableSettings(), loaded.valueTableSettings)
+        assertEquals(1, ByteBuffer.wrap(fixture).getInt(4))
+        assertTrue(fixture.contentEquals(Files.readAllBytes(file)))
+    }
+
+    @Test fun cspfV2RoundTripsAllTableModeInputsSelectionAndDisplaySettings() {
+        val directory = temporaryFolder.newFolder("table-v2-round-trip").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        val source = validate(FunctionStudy.newWorkingSession(FunctionStudyId("table-v2")), FunctionSlotId.F1, "a*x")
+        val retained = FunctionValueTableRetainedModeInputs(
+            intervalAndStep = FunctionValueTableGenerationMode.IntervalAndStep(-3.0, 3.0, 0.25),
+            intervalAndCount = FunctionValueTableGenerationMode.IntervalAndCount(-5.0, 5.0, 21),
+            customValues = FunctionValueTableGenerationMode.CustomValues("2,5; -1; 2,5")
+        )
+        val settings = FunctionValueTableSettings(
+            generationMode = retained.intervalAndCount,
+            selectedSlots = setOf(FunctionSlotId.F1),
+            decimalPlaces = 12,
+            scientificNotation = false,
+            retainedModeInputs = retained
+        ).selectMode(com.example.calcstudiopro.functions.table.FunctionValueTableModeId.CUSTOM_VALUES)
+        val study = source.withValueTableSettings(settings)
+        success(store.saveWorkingSession(study))
+        val file = directory.resolve("working.cspf")
+        assertEquals(2, ByteBuffer.wrap(Files.readAllBytes(file)).getInt(4))
+        val restored = success(store.loadWorkingSession())!!
+        assertEquals(settings, restored.valueTableSettings)
+        assertEquals(study.revision(), restored.revision())
+        assertEquals(1.0, (restored.evaluate(FunctionSlotId.F1, 1.0) as com.example.calcstudiopro.functions.domain.FunctionEvaluationResult.Value).value, 0.0)
+    }
+
+    @Test fun cspfV2SettingsAreIncludedInNamedAndRecoveryStudyRecords() {
+        val directory = temporaryFolder.newFolder("table-study-kinds").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        val settings = FunctionValueTableSettings(
+            generationMode = FunctionValueTableGenerationMode.CustomValues("1; -2; 1"),
+            selectedSlots = setOf(FunctionSlotId.F1),
+            decimalPlaces = 6
+        )
+        val named = validate(FunctionStudy.newNamedStudy("Table config", FunctionStudyId("named-table")), FunctionSlotId.F1, "x")
+            .withValueTableSettings(settings)
+        success(store.createNamedStudy(named))
+        assertEquals(settings, success(store.loadNamedStudy(named.id)).valueTableSettings)
+        val recovery = named.asRecoverySession()
+        success(store.saveRecoverySession(recovery))
+        assertEquals(settings, success(store.loadRecoverySession())!!.valueTableSettings)
+    }
+
+    @Test fun cspfV2RejectsInvalidTableSettingsOnWriteAndRead() {
+        val directory = temporaryFolder.newFolder("invalid-table-settings").toPath()
+        val store = FunctionStudyStore(directory, engine)
+        val source = FunctionStudy.newWorkingSession(FunctionStudyId("invalid-table-settings"))
+        val invalid = source.withValueTableSettings(FunctionValueTableSettings(decimalPlaces = 13))
+        assertEquals(StudyStoreError.INVALID_STUDY, failure(store.saveWorkingSession(invalid)).error)
+        val good = validate(source, FunctionSlotId.F1, "x").withValueTableSettings(
+            FunctionValueTableSettings(selectedSlots = setOf(FunctionSlotId.F1))
+        )
+        success(store.saveWorkingSession(good))
+        val path = directory.resolve("working.cspf")
+        val bytes = Files.readAllBytes(path)
+        val payloadSize = ByteBuffer.wrap(bytes).getInt(8)
+        val payloadEnd = 12 + payloadSize
+        ByteBuffer.wrap(bytes, payloadEnd - 5, 4).putInt(13)
+        val payload = bytes.copyOfRange(12, payloadEnd)
+        val checksum = java.util.zip.CRC32().apply { update(payload) }.value
+        ByteBuffer.wrap(bytes, payloadEnd, 8).putLong(checksum)
+        Files.write(path, bytes)
+        assertEquals(StudyStoreError.CORRUPT_DATA, failure(store.loadWorkingSession()).error)
+    }
 
     @Test fun workingSessionRoundTripsAllFieldsAndRebuildsValidatedAsts() {
         val directory = temporaryFolder.newFolder("round-trip").toPath()

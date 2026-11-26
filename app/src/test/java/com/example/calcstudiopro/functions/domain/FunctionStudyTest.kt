@@ -4,6 +4,8 @@ import com.example.calcstudiopro.domain.functions.ExpressionEvaluation
 import com.example.calcstudiopro.domain.functions.FunctionAngleMode
 import com.example.calcstudiopro.domain.functions.MathExpressionEngine
 import com.example.calcstudiopro.domain.functions.MathExpressionError
+import com.example.calcstudiopro.functions.table.FunctionValueTableGenerationMode
+import com.example.calcstudiopro.functions.table.FunctionValueTableSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
@@ -14,6 +16,27 @@ import kotlin.math.PI
 
 class FunctionStudyTest {
     private val engine = MathExpressionEngine()
+
+    @Test fun valueTableSettingsArePartOfStudyRevisionsAndSurviveStudyCopies() {
+        val populated = validate(FunctionStudy.newWorkingSession(), FunctionSlotId.F1, "a*x")
+        val settings = FunctionValueTableSettings(
+            generationMode = FunctionValueTableGenerationMode.CustomValues("2; 1; 2"),
+            selectedSlots = setOf(FunctionSlotId.F1),
+            decimalPlaces = 8,
+            scientificNotation = false
+        )
+        val updated = populated.withValueTableSettings(settings)
+        assertTrue(updated.hasUnsavedChangesSince(populated.revision()))
+        assertEquals(settings, updated.withDraft(FunctionSlotId.F1, "a*x+").valueTableSettings)
+        assertEquals(settings, updated.withColor(FunctionSlotId.F1, FunctionColor.NAVY).valueTableSettings)
+        assertEquals(settings, updated.withVisibility(FunctionSlotId.F1, false).valueTableSettings)
+        assertEquals(settings, updated.withAngleMode(FunctionAngleMode.DEG).valueTableSettings)
+        assertEquals(settings, updated.asNamedStudy("Named").asWorkingSession().asRecoverySession().valueTableSettings)
+
+        val cleared = updated.withDraft(FunctionSlotId.F1, " ")
+            .validateFunction(FunctionSlotId.F1, engine) as StudyValidationResult.Accepted
+        assertTrue(cleared.study.valueTableSettings.selectedSlots.isEmpty())
+    }
 
     @Test fun newWorkingSessionAlwaysCreatesSixStableOrderedSlots() {
         val study = FunctionStudy.newWorkingSession(FunctionStudyId("session-a"))
