@@ -63,6 +63,41 @@ class ConversionEngineTest {
         assertThrows(IllegalArgumentException::class.java) { convert(1.0, "km_per_h", "pa") }
     }
 
+    @Test fun requestedLengthVolumeSpeedAndPowerUnitsUseReferenceFactorsBothWays() {
+        assertEquals(0.1, convert(1.0, "dm", "m"), 0.0)
+        assertEquals(1.0, convert(0.1, "m", "dm"), 0.0)
+        assertEquals(0.1, convert(1.0, "dl", "l"), 1e-15)
+        assertEquals(0.000001, convert(1.0, "mm3", "l"), 1e-15)
+        assertEquals(0.001, convert(1.0, "cm3", "l"), 1e-15)
+        assertEquals(1.0, convert(1.0, "dm3", "l"), 0.0)
+        assertEquals(100.0, convert(1.0, "dl", "ml"), 1e-12)
+        assertEquals(299_792_458.0, convert(1.0, "speed_of_light", "m_per_s"), 0.0)
+        assertEquals(149_896_229.0, convert(0.5, "speed_of_light", "m_per_s"), 0.0)
+        assertEquals(1.0, convert(299_792_458.0, "m_per_s", "speed_of_light"), 0.0)
+        assertEquals(0.001, convert(1.0, "mw_power", "w"), 0.0)
+        assertEquals(1_000_000_000.0, convert(1.0, "gw", "w"), 0.0)
+        assertEquals(0.29307107, convert(1.0, "btu_per_hour", "w"), 1e-12)
+        assertEquals(1.0, convert(735.49875, "w", "ch"), 1e-12)
+        assertEquals(1.0, convert(745.69987158227022, "w", "hp"), 1e-12)
+        assertEquals("ch", UnitCatalog.get("ch")!!.symbol)
+        assertEquals("hp", UnitCatalog.get("hp")!!.symbol)
+    }
+
+    @Test fun conversionEducationUsesTheSelectedUnitFactorsAndAffineTemperatureFormulas() {
+        assertEquals(
+            true,
+            ConversionEducation.explain(UnitCatalog.get("in")!!, UnitCatalog.get("mm")!!).contains("25,4")
+        )
+        assertEquals(
+            true,
+            ConversionEducation.explain(UnitCatalog.get("celsius")!!, UnitCatalog.get("fahrenheit")!!).contains("°F = °C × 9/5 + 32")
+        )
+        assertEquals(
+            true,
+            ConversionEducation.explain(UnitCatalog.get("fahrenheit")!!, UnitCatalog.get("celsius")!!).contains("°C = (°F − 32) × 5/9")
+        )
+    }
+
     @Test fun validationRejectsIncompatibleAndNonFiniteValues() {
         assertThrows(IllegalArgumentException::class.java) {
             ConversionEngine.convert(1.0, UnitCatalog.get("m")!!, UnitCatalog.get("kg")!!)

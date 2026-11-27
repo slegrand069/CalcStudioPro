@@ -47,7 +47,31 @@ class StatisticsViewModelTest {
         assertEquals(1, repo.saved.size)
         assertEquals("statistics", repo.saved.single().sourceMode)
         assertNull(repo.saved.single().reusableValue)
-        assertTrue(repo.saved.single().detailsJson!!.contains("\"version\":1"))
+        val saved = repo.saved.single().structuredData
+        assertEquals("Statistiques 1D", saved?.operation)
+        assertTrue(saved!!.results.any { it.label == "Moyenne" && it.numericValue == 2.0 })
+        assertTrue(saved.details.isEmpty()) // The legacy edit path has no retained raw observations.
+    }
+
+    @Test fun savingCurrentOneDAndTwoDResultsCreatesImmutableStructuredSnapshots() = runBlocking {
+        val repo = Repo()
+        val vm = StatisticsViewModel(repo, CoroutineScope(Dispatchers.Unconfined))
+        vm.editOneD("1\n2\n3")
+        vm.finishEditing()
+        vm.save()
+        val oneD = repo.saved.last().structuredData!!
+        assertEquals("Statistiques 1D", oneD.operation)
+        assertEquals(3, oneD.details.size)
+        assertTrue(oneD.results.any { it.label == "Moyenne" && it.numericValue == 2.0 })
+
+        vm.selectDimension(StatisticsDimension.TWO_D)
+        vm.editTwoD("1\t2\n3\t4\n5\t6")
+        vm.finishEditing()
+        vm.save()
+        val twoD = repo.saved.last().structuredData!!
+        assertEquals("Statistiques 2D", twoD.operation)
+        assertEquals(3, twoD.details.count { it.label.startsWith("Couple ") })
+        assertTrue(twoD.results.any { it.label == "Pearson r" })
     }
 
     @Test fun groupedEditorPreservesDistributionAndOneDTwoDSessionsStaySeparate() {

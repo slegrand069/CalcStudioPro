@@ -3,7 +3,6 @@ package com.example.calcstudiopro
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.SemanticsMatcher
@@ -40,9 +39,9 @@ class SettingsNavigationTest {
         assertEditableText("settings-tolerance", "1e-8")
         assertEditableText("settings-max-denominator", "10000")
         assertEditableText("settings-max-iterations", "64")
-        composeRule.onNodeWithTag("settings-presentation-FRACTION").assertIsSelected()
-        composeRule.onNodeWithTag("settings-angle-DEGREES").assertIsSelected()
-        composeRule.onNodeWithTag("settings-notation-STANDARD").assertIsSelected()
+        composeRule.onNodeWithTag("settings-presentation-FRACTION").assertDoesNotExist()
+        composeRule.onNodeWithTag("settings-angle-DEGREES").assertDoesNotExist()
+        composeRule.onNodeWithTag("settings-notation-STANDARD").assertDoesNotExist()
         composeRule.onNodeWithTag("settings-back").performClick()
         composeRule.onNodeWithTag("calculator-expression").assertTextEquals("2+")
     }
@@ -60,11 +59,8 @@ class SettingsNavigationTest {
 
     @Test
     fun angleAndNotationChoicesPersistAndApplyToCalculator() {
-        composeRule.onNodeWithTag("calculator-settings").performClick()
-        composeRule.onNodeWithTag("settings-angle-RADIANS").performClick()
-        composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithTag("calculator-angle-toggle").performClick()
+        composeRule.onNodeWithTag("calculator-number-format-toggle").performClick()
 
         composeRule.onNodeWithTag("calculator-angle-toggle").assertTextEquals("RAD")
         composeRule.onNodeWithTag("calculator-number-format-toggle").assertTextEquals("SCI")
@@ -75,8 +71,8 @@ class SettingsNavigationTest {
         composeRule.onNodeWithTag("calculator-number-format-toggle").assertTextEquals("SCI")
 
         composeRule.onNodeWithTag("calculator-settings").performClick()
-        composeRule.onNodeWithTag("settings-angle-RADIANS").assertIsSelected()
-        composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").assertIsSelected()
+        composeRule.onNodeWithTag("settings-angle-RADIANS").assertDoesNotExist()
+        composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").assertDoesNotExist()
     }
 
     @Test
@@ -84,9 +80,7 @@ class SettingsNavigationTest {
         enterOneThirdAndEvaluate()
         assertResult("0.3333333333")
 
-        composeRule.onNodeWithTag("calculator-settings").performClick()
-        composeRule.onNodeWithTag("settings-notation-SCIENTIFIC").performClick()
-        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithTag("calculator-number-format-toggle").performClick()
         composeRule.onNodeWithText("≈").assertIsDisplayed()
 
         tap("Shift")
@@ -102,10 +96,7 @@ class SettingsNavigationTest {
 
     @Test
     fun decimalPresentationKeepsShiftEqualsInDecimalMode() {
-        composeRule.onNodeWithTag("calculator-settings").performClick()
-        composeRule.onNodeWithTag("settings-presentation-DECIMAL").performClick()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("settings-back").performClick()
+        composeRule.onNodeWithTag("calculator-result-presentation-toggle").performClick()
 
         enterOneThirdAndEvaluate()
         tap("Shift")
@@ -151,6 +142,15 @@ class SettingsNavigationTest {
         tap("=")
         assertResult("")
         composeRule.onNodeWithTag("calculator-expression").assertTextEquals("0")
+    }
+
+    @Test
+    fun divisionByZeroMessageRemainsFullyAvailableInTheCalculatorDisplay() {
+        tap("2")
+        tap("÷")
+        tap("0")
+        tap("=")
+        composeRule.onNodeWithTag("calculator-error").assertIsDisplayed().assertTextEquals("Division par zéro impossible")
     }
 
     private fun tap(key: String) {

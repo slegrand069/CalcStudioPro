@@ -35,6 +35,10 @@ class SettingsViewModel(
         }
     }
 
+    fun updateResultPresentation(presentation: ResultPresentation) {
+        updateContinuedFractions(mutableState.value.settings.continuedFractions.copy(resultPresentation = presentation))
+    }
+
     fun updateAngleUnit(angleUnit: com.example.calcstudiopro.domain.AngleUnit) {
         viewModelScope.launch {
             runCatching { repository.updateAngleUnit(angleUnit) }

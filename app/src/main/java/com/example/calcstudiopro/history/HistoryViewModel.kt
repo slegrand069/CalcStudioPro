@@ -8,6 +8,8 @@ import com.example.calcstudiopro.history.domain.HistoryModes
 import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.HistoryValueTypes
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
+import com.example.calcstudiopro.history.domain.HistoryDatum
+import com.example.calcstudiopro.history.domain.HistoryStructuredData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,7 +43,12 @@ class HistoryViewModel(private val repository: HistoryRepository) : ViewModel() 
                         description = expression,
                         displayResult = displayResult,
                         reusableValue = canonicalValue,
-                        reusableValueType = HistoryValueTypes.DECIMAL_DOUBLE
+                        reusableValueType = HistoryValueTypes.DECIMAL_DOUBLE,
+                        structuredData = HistoryStructuredData(
+                            operation = "Calculatrice",
+                            inputs = listOf(HistoryDatum("Expression", expression)),
+                            results = listOf(HistoryDatum("Résultat", displayResult, value))
+                        )
                     )
                 )
             }.onFailure(::showError)

@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.calcstudiopro.history.domain.HistoryModes
 import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
+import com.example.calcstudiopro.history.domain.HistoryDatum
+import com.example.calcstudiopro.history.domain.HistoryStructuredData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +52,7 @@ data class StatisticsState(
     val recommendationMessage: String = "Aucune recommandation fiable : lancez la comparaison des modèles.",
     val recommendationWarning: String? = null
 ) {
-    val canSave: Boolean get() = result != null
+    val canSave: Boolean get() = if (dimension == StatisticsDimension.ONE_D) result != null else twoDResult != null
     val activeDirty: Boolean get() = if (dimension == StatisticsDimension.ONE_D) oneDDirty else twoDDirty
     val twoDResult: Statistics2DEngine.Result? get() = Statistics2DEngine.analyze(twoDPoints)
 }
@@ -431,17 +433,106 @@ class StatisticsViewModel(
         StatisticsDimension.TWO_D -> StoredStatisticsData.TwoD(state.twoDPoints)
     }
 
-    /** Original feature: keep the explicit history action available. */
+    /** Saves an immutable snapshot of the exact results currently available in the selected dimension. */
     fun save() {
         val snapshot = mutableState.value
-        val result = snapshot.result ?: return
-        val details = """{"version":1,"values":"${escapeJson(snapshot.input)}","count":${result.count},"sum":"${result.sum}","mean":"${result.mean}","median":"${result.median}","minimum":"${result.minimum}","maximum":"${result.maximum}","populationStandardDeviation":"${result.populationStandardDeviation}"}"""
-        val summary = listOf("Effectif : ${result.count}", "Somme : ${StatisticsEngine.format(result.sum)}", "Moyenne : ${StatisticsEngine.format(result.mean)}",
-            "Médiane : ${StatisticsEngine.format(result.median)}", "Minimum : ${StatisticsEngine.format(result.minimum)}", "Maximum : ${StatisticsEngine.format(result.maximum)}",
-            "Écart-type (population) : ${StatisticsEngine.format(result.populationStandardDeviation)}").joinToString("\n")
-        history?.let { repository -> scope.launch { runCatching { repository.add(NewHistoryEntry(sourceMode = HistoryModes.STATISTICS,
-            description = "Statistiques : ${snapshot.input.trim().replace(Regex("\\s*;\\s*"), " ; ")}", displayResult = summary, reusableValue = null, reusableValueType = null, detailsJson = details)) }
-            .onFailure { error -> mutableState.value = mutableState.value.copy(saveError = error.message ?: "Enregistrement impossible") } } }
+        val repository = history ?: return
+        val payload: HistoryStructuredData
+        val description: String
+        val summary: String
+        if (snapshot.dimension == StatisticsDimension.ONE_D) {
+            val result = snapshot.result ?: return
+            payload = HistoryStructuredData(
+                operation = "Statistiques 1D",
+                inputs = listOf(HistoryDatum("Données", snapshot.input.trim())),
+                results = oneDHistoryResults(result, snapshot.percentileInput.toDoubleOrNull()?.let { StatisticsEngine.quantile(snapshot.oneDValues, it) }),
+                details = snapshot.oneDValues.mapIndexed { index, value -> HistoryDatum("Observation ${index + 1}", StatisticsEngine.format(value), value) }
+            )
+            description = "Série de ${result.count} valeurs"
+            summary = "Moyenne : ${StatisticsEngine.format(result.mean)} · Médiane : ${StatisticsEngine.format(result.median)}\nMinimum : ${StatisticsEngine.format(result.minimum)} · Maximum : ${StatisticsEngine.format(result.maximum)}"
+        } else {
+            val result = snapshot.twoDResult ?: return
+            val activeFit = snapshot.selectedFit.fit?.takeIf { !snapshot.fitLoading && it.model == snapshot.model }
+            val activeComparisons = snapshot.comparison.takeIf { !snapshot.comparisonLoading && snapshot.comparisonData == snapshot.twoDPoints }.orEmpty()
+            payload = HistoryStructuredData(
+                operation = "Statistiques 2D",
+                inputs = listOf(HistoryDatum("Couples", "${snapshot.twoDPoints.size} points")),
+                results = twoDHistoryResults(result),
+                details = buildList {
+                    snapshot.twoDPoints.forEachIndexed { index, pair ->
+                        add(HistoryDatum("Couple ${index + 1}", "(${StatisticsEngine.format(pair.x)} ; ${StatisticsEngine.format(pair.y)})"))
+                    }
+                    activeFit?.let { fit ->
+                        add(HistoryDatum("Régression sélectionnée", fit.equation()))
+                        fit.displayCoefficients().forEach { add(HistoryDatum("Coefficient ${it.symbol}", StatisticsEngine.format(it.value), it.value)) }
+                        add(HistoryDatum("R²", fit.rSquared?.let(StatisticsEngine::format) ?: "Non défini", fit.rSquared))
+                        add(HistoryDatum("R² ajusté", fit.adjustedRSquared?.let(StatisticsEngine::format) ?: "Non défini", fit.adjustedRSquared))
+                        add(HistoryDatum("RMSE", StatisticsEngine.format(fit.rmse), fit.rmse))
+                        fit.predictions.forEachIndexed { index, value -> add(HistoryDatum("Prédiction ${index + 1}", StatisticsEngine.format(value), value)) }
+                        fit.residuals.forEachIndexed { index, value -> add(HistoryDatum("Résidu ${index + 1}", StatisticsEngine.format(value), value)) }
+                    }
+                    activeComparisons.forEach { comparison ->
+                        val fit = comparison.fitResult.fit
+                        add(HistoryDatum("Comparaison ${comparison.model.family}", fit?.equation() ?: comparison.fitResult.unavailableReason.orEmpty()))
+                        add(HistoryDatum("RMSE LOOCV ${comparison.model.family}", comparison.loocvRmse?.let(StatisticsEngine::format) ?: comparison.loocvUnavailableReason.orEmpty(), comparison.loocvRmse))
+                        fit?.displayCoefficients()?.forEach { add(HistoryDatum("${comparison.model.family} · ${it.symbol}", StatisticsEngine.format(it.value), it.value)) }
+                    }
+                }
+            )
+            description = "${result.count} couples · ${modelDescription(snapshot.model)}"
+            summary = "Moyenne X : ${StatisticsEngine.format(result.x.mean)} · Moyenne Y : ${StatisticsEngine.format(result.y.mean)}\nPearson : ${result.pearson?.let(StatisticsEngine::format) ?: "Non défini"} · Spearman : ${result.spearman?.let(StatisticsEngine::format) ?: "Non défini"}"
+        }
+        scope.launch {
+            runCatching { repository.add(NewHistoryEntry(
+                sourceMode = HistoryModes.STATISTICS, description = description, displayResult = summary,
+                reusableValue = null, reusableValueType = null, structuredData = payload
+            )) }.onFailure { error -> mutableState.value = mutableState.value.copy(saveError = error.message ?: "Enregistrement impossible") }
+        }
+    }
+
+    private fun oneDHistoryResults(result: StatisticsEngine.Result, percentile: Double?): List<HistoryDatum> = buildList {
+        add(HistoryDatum("Effectif", result.count.toString(), result.count.toDouble()))
+        fun metric(label: String, value: Double?) { add(HistoryDatum(label, value?.let(StatisticsEngine::format) ?: "Non défini", value)) }
+        metric("Somme", result.sum); metric("Moyenne", result.mean); metric("Médiane", result.median)
+        metric("Minimum", result.minimum); metric("Maximum", result.maximum); metric("Variance population", result.populationVariance)
+        metric("Variance échantillon", result.sampleVariance); metric("Écart-type population", result.populationStandardDeviation)
+        metric("Écart-type échantillon", result.sampleStandardDeviation); metric("Étendue", result.range)
+        add(HistoryDatum("Modes", if (result.hasDominantMode) result.modes.joinToString(", ", transform = StatisticsEngine::format) else "Aucun mode dominant"))
+        metric("Q1", result.q1); metric("Q2 (médiane)", result.median); metric("Q3", result.q3); metric("IQR", result.interquartileRange)
+        metric("CV population (%)", result.populationCoefficientOfVariation); metric("CV échantillon (%)", result.sampleCoefficientOfVariation)
+        metric("Asymétrie", result.skewness); metric("Kurtosis excédentaire", result.excessKurtosis)
+        metric("Percentile demandé", percentile)
+    }
+
+    private fun twoDHistoryResults(result: Statistics2DEngine.Result): List<HistoryDatum> = buildList {
+        add(HistoryDatum("Effectif", result.count.toString(), result.count.toDouble()))
+        fun metric(label: String, value: Double?) { add(HistoryDatum(label, value?.let(StatisticsEngine::format) ?: "Non défini", value)) }
+        fun axis(prefix: String, stats: StatisticsEngine.Result) {
+            metric("Moyenne $prefix", stats.mean); metric("Médiane $prefix", stats.median)
+            metric("Minimum $prefix", stats.minimum); metric("Maximum $prefix", stats.maximum)
+            metric("Somme $prefix", stats.sum); metric("Variance population $prefix", stats.populationVariance)
+            metric("Variance échantillon $prefix", stats.sampleVariance)
+            metric("Écart-type population $prefix", stats.populationStandardDeviation)
+            metric("Écart-type échantillon $prefix", stats.sampleStandardDeviation)
+            metric("Étendue $prefix", stats.range); metric("Q1 $prefix", stats.q1); metric("Q3 $prefix", stats.q3)
+            metric("IQR $prefix", stats.interquartileRange)
+            metric("CV population $prefix (%)", stats.populationCoefficientOfVariation)
+            metric("CV échantillon $prefix (%)", stats.sampleCoefficientOfVariation)
+            metric("Asymétrie $prefix", stats.skewness); metric("Kurtosis excédentaire $prefix", stats.excessKurtosis)
+            add(HistoryDatum("Modes $prefix", if (stats.hasDominantMode) stats.modes.joinToString(", ", transform = StatisticsEngine::format) else "Aucun mode dominant"))
+        }
+        axis("X", result.x)
+        axis("Y", result.y)
+        metric("Covariance population", result.covariancePopulation); metric("Covariance échantillon", result.covarianceSample)
+        metric("Pearson r", result.pearson); metric("Spearman ρ", result.spearman)
+    }
+
+    private fun modelDescription(model: Statistics2DEngine.Model) = when (model.family) {
+        Statistics2DEngine.Family.LINEAR -> "Régression linéaire"
+        Statistics2DEngine.Family.POLYNOMIAL -> "Régression polynomiale degré ${model.degree}"
+        Statistics2DEngine.Family.EXPONENTIAL -> "Régression exponentielle"
+        Statistics2DEngine.Family.LOGARITHMIC -> "Régression logarithmique"
+        Statistics2DEngine.Family.POWER -> "Régression puissance"
     }
 
     private fun escapeJson(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")

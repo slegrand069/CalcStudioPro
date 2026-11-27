@@ -314,6 +314,11 @@ private fun DashboardTwoD(state: StatisticsState, result: Statistics2DEngine.Res
                 Metric("Covariance population", it.covariancePopulation?.let(StatisticsEngine::format) ?: "Non définie")
             }
         }
+        TextButton(
+            onClick = viewModel::save,
+            enabled = state.canSave,
+            modifier = Modifier.fillMaxWidth().testTag("statistics-save-history-2d")
+        ) { Text("Sauvegarder dans l’historique") }
         SectionCard("APERÇU · NUAGE + RÉGRESSION") {
             val activeFit = state.selectedFit.fit?.takeIf { !state.fitLoading && it.model == state.model }
             val preview = if (state.twoDPoints.isEmpty()) null else StatisticsGraphFactory.regressionScatter(

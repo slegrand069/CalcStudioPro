@@ -48,9 +48,7 @@ fun SettingsRoute(viewModel: SettingsViewModel, onBack: () -> Unit) {
     SettingsScreen(
         state = state,
         onBack = onBack,
-        onUpdateContinuedFractions = viewModel::updateContinuedFractions,
-        onAngleUnitChange = viewModel::updateAngleUnit,
-        onNotationChange = viewModel::updateNotation
+        onUpdateContinuedFractions = viewModel::updateContinuedFractions
     )
 }
 
@@ -59,9 +57,7 @@ fun SettingsRoute(viewModel: SettingsViewModel, onBack: () -> Unit) {
 private fun SettingsScreen(
     state: SettingsUiState,
     onBack: () -> Unit,
-    onUpdateContinuedFractions: (ContinuedFractionSettings) -> Unit,
-    onAngleUnitChange: (com.example.calcstudiopro.domain.AngleUnit) -> Unit,
-    onNotationChange: (CalculatorNotation) -> Unit
+    onUpdateContinuedFractions: (ContinuedFractionSettings) -> Unit
 ) {
     val settings = state.settings.continuedFractions
     var toleranceText by rememberSaveable { mutableStateOf(settings.tolerance.toReadableTolerance()) }
@@ -137,46 +133,6 @@ private fun SettingsScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
-            Text("Présentation du résultat", style = MaterialTheme.typography.titleMedium)
-            Row(modifier = Modifier.fillMaxWidth()) {
-                ResultPresentation.entries.forEach { presentation ->
-                    ChoiceOption(
-                        modifier = Modifier.weight(1f),
-                        label = if (presentation == ResultPresentation.FRACTION) "Fraction" else "Décimal",
-                        selected = settings.resultPresentation == presentation,
-                        tag = "settings-presentation-${presentation.name}",
-                        onSelect = {
-                            onUpdateContinuedFractions(settings.copy(resultPresentation = presentation))
-                        }
-                    )
-                }
-            }
-
-            Text("Angles", style = MaterialTheme.typography.titleMedium)
-            Row(modifier = Modifier.fillMaxWidth()) {
-                com.example.calcstudiopro.domain.AngleUnit.entries.forEach { angleUnit ->
-                    ChoiceOption(
-                        modifier = Modifier.weight(1f),
-                        label = if (angleUnit == com.example.calcstudiopro.domain.AngleUnit.DEGREES) "Degrés" else "Radians",
-                        selected = state.settings.angleUnit == angleUnit,
-                        tag = "settings-angle-${angleUnit.name}",
-                        onSelect = { onAngleUnitChange(angleUnit) }
-                    )
-                }
-            }
-
-            Text("Notation scientifique", style = MaterialTheme.typography.titleMedium)
-            Row(modifier = Modifier.fillMaxWidth()) {
-                CalculatorNotation.entries.forEach { notation ->
-                    ChoiceOption(
-                        modifier = Modifier.weight(1f),
-                        label = if (notation == CalculatorNotation.STANDARD) "Normale" else "Scientifique",
-                        selected = state.settings.notation == notation,
-                        tag = "settings-notation-${notation.name}",
-                        onSelect = { onNotationChange(notation) }
-                    )
-                }
-            }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }

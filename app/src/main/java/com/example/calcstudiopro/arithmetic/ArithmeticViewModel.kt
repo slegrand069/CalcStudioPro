@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.calcstudiopro.history.domain.HistoryModes
 import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
+import com.example.calcstudiopro.history.domain.HistoryDatum
+import com.example.calcstudiopro.history.domain.HistoryStructuredData
+import com.example.calcstudiopro.history.domain.HistoryValueTypes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -70,8 +73,53 @@ class ArithmeticViewModel(private val history:HistoryRepository?=null):ViewModel
    if(token==version)out.onSuccess{val value=if(it is Pair<*,*>){flow.value=flow.value.copy(result=it.first.toString(),tree=it.second as FactorTreeNode,busy=false);null}else it.toString();if(value!=null)flow.value=flow.value.copy(result=value,busy=false)}.onFailure{flow.value=flow.value.copy(error=it.message?:"Calcul impossible",busy=false)}
   }
  }
- fun save(){val s=flow.value;if(s.result.isBlank())return;val repo=history?:return;val fn=arithmeticFunctions[s.family][s.function];val description="${arithmeticFamilies[s.family]} — $fn (${s.a}${if(s.b.isNotBlank())", ${s.b}" else ""}${if(s.c.isNotBlank())", ${s.c}" else ""})";viewModelScope.launch{runCatching{repo.add(NewHistoryEntry(HistoryModes.ARITHMETIC,description,s.result,null,null,detailsJson="""{"version":1,"family":${s.family},"function":${s.function},"inputs":["${s.a}","${s.b}","${s.c}"],"result":"${s.result.replace("\\","\\\\").replace("\"","\\\"")}"}"""))}.onSuccess{flow.value=flow.value.copy(saved=true)}.onFailure{flow.value=flow.value.copy(error=it.message?:"Enregistrement impossible")}}
+ fun save(){
+  val s=flow.value
+  if(s.result.isBlank())return
+  val repo=history?:return
+  val fn=arithmeticFunctions[s.family][s.function]
+  val description="${arithmeticFamilies[s.family]} — $fn (${s.a}${if(s.b.isNotBlank())", ${s.b}" else ""}${if(s.c.isNotBlank())", ${s.c}" else ""})"
+  val inputs=listOf("a" to s.a,"b" to s.b,"c" to s.c).filter { it.second.isNotBlank() }
+      .map { (label,value)->HistoryDatum(label,value,value.toBigIntegerOrNull()?.toDouble()?.takeIf(Double::isFinite)) }
+  val exactScalar=scalarResult(s)
+  val reusableDouble=exactScalar?.toDouble()?.takeIf { it.isFinite() && java.math.BigDecimal(it).toBigIntegerExactOrNull()==exactScalar }
+  val results=mutableListOf(HistoryDatum("Résultat",s.result,reusableDouble))
+  val details=mutableListOf<HistoryDatum>()
+  if(s.family==0&&s.function==4){
+      runCatching {
+          val n=s.a.trim().toBigInteger(); val factors=PrimeEngine.factor(n); val divisors=divisorsFromFactors(factors)
+          results.clear(); results += HistoryDatum("Nombre de diviseurs",ArithmeticEngine.divisorCountFromFactors(factors).toString())
+          results += HistoryDatum("Somme des diviseurs",ArithmeticEngine.divisorSumFromFactors(factors).toString())
+          if(divisors==null) details += HistoryDatum("Liste", "Non affichée : limite de ${ArithmeticLimits.MAX_DIVISOR_LIST} valeurs")
+          else divisors.forEachIndexed { index,value -> details += HistoryDatum("Diviseur ${index+1}",value.toString()) }
+      }
+  } else if(s.family==1&&s.function==4){
+      runCatching {
+          val low=s.a.trim().toInt(); val high=s.b.trim().toInt(); val primes=PrimeEngine.primesTo(high).filter { it>=low }
+          results.clear(); results += HistoryDatum("Nombres premiers trouvés",primes.size.toString(),primes.size.toDouble())
+          primes.forEachIndexed { index,value -> details += HistoryDatum("Nombre premier ${index+1}",value.toString(),value.toDouble()) }
+      }
+  }
+  val payload=HistoryStructuredData("${arithmeticFamilies[s.family]} · $fn",inputs,results,details)
+  viewModelScope.launch{runCatching{repo.add(NewHistoryEntry(
+      sourceMode=HistoryModes.ARITHMETIC,description=description,displayResult=s.result,
+      reusableValue=reusableDouble?.toString(),reusableValueType=reusableDouble?.let { HistoryValueTypes.DECIMAL_DOUBLE },
+      structuredData=payload
+  ))}.onSuccess{flow.value=flow.value.copy(saved=true)}.onFailure{flow.value=flow.value.copy(error=it.message?:"Enregistrement impossible")}}
  }
+
+ private fun scalarResult(s: ArithmeticState): BigInteger? = runCatching {
+     val a=s.a.trim().toBigInteger(); val b=s.b.trim().takeIf(String::isNotBlank)?.toBigInteger()
+     when(s.family){
+         0 -> when(s.function){0->ArithmeticEngine.gcd(a,requireNotNull(b));1->ArithmeticEngine.lcm(a,requireNotNull(b));else->null}
+         2 -> when(s.function){0->CombinatoricsEngine.factorial(a.intValueExact());1->CombinatoricsEngine.arrangements(a.intValueExact(),requireNotNull(b).intValueExact());2->CombinatoricsEngine.combinations(a.intValueExact(),requireNotNull(b).intValueExact());3->CombinatoricsEngine.repetitions(a.intValueExact(),requireNotNull(b).intValueExact());4->CombinatoricsEngine.multiset(s.a.trim().split(Regex("[,;\\s]+")).filter(String::isNotBlank).map(String::toInt));else->null}
+         3 -> when(s.function){0->a.mod(requireNotNull(b));1->a.modPow(requireNotNull(b),requireNotNull(s.c.trim().takeIf(String::isNotBlank)?.toBigInteger()));2->a.modInverse(requireNotNull(b));else->null}
+         4 -> if(s.function==0) NumberSequencesEngine.fibonacci(a.intValueExact()) else null
+         else -> null
+     }
+ }.getOrNull()
+
+ private fun java.math.BigDecimal.toBigIntegerExactOrNull():BigInteger? = runCatching { toBigIntegerExact() }.getOrNull()
  class Factory(private val repo:HistoryRepository):ViewModelProvider.Factory{@Suppress("UNCHECKED_CAST") override fun<T:ViewModel>create(modelClass:Class<T>):T{require(modelClass.isAssignableFrom(ArithmeticViewModel::class.java));return ArithmeticViewModel(repo) as T}}
 }
 

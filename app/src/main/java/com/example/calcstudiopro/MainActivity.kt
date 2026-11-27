@@ -7,6 +7,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
@@ -152,7 +156,8 @@ class MainActivity : ComponentActivity() {
                                 resultPresentation = appSettings.settings.continuedFractions.resultPresentation,
                                 settingsLoaded = !appSettings.isLoading,
                                 onAngleUnitChange = settingsViewModel::updateAngleUnit,
-                                onNotationChange = settingsViewModel::updateNotation
+                                onNotationChange = settingsViewModel::updateNotation,
+                                onResultPresentationChange = settingsViewModel::updateResultPresentation
                             )
                         }
                         composable("settings") {
@@ -286,7 +291,8 @@ fun CalculatorScreen(
     resultPresentation: ResultPresentation = ResultPresentation.FRACTION,
     settingsLoaded: Boolean = true,
     onAngleUnitChange: (AngleUnit) -> Unit = {},
-    onNotationChange: (CalculatorNotation) -> Unit = {}
+    onNotationChange: (CalculatorNotation) -> Unit = {},
+    onResultPresentationChange: (ResultPresentation) -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     val engine = remember { CalculatorEngine() }
@@ -911,6 +917,20 @@ fun CalculatorScreen(
                                 .testTag("calculator-number-format-toggle")
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
+
+                        Text(
+                            text = if (resultPresentation == ResultPresentation.FRACTION) "FRAC" else "DEC",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
+                            modifier = Modifier
+                                .background(colors.primary.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                .clickable {
+                                    onResultPresentationChange(if (resultPresentation == ResultPresentation.FRACTION) ResultPresentation.DECIMAL else ResultPresentation.FRACTION)
+                                }
+                                .testTag("calculator-result-presentation-toggle")
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                        )
                     }
 
                     Text(
@@ -946,7 +966,7 @@ fun CalculatorScreen(
                     maxLines = 2
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 BoxWithConstraints(
                     modifier = Modifier.fillMaxWidth(),
@@ -988,14 +1008,16 @@ fun CalculatorScreen(
                 if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
-                        modifier = Modifier.testTag("calculator-error"),
-                        fontSize = 16.sp,
+                        modifier = Modifier.fillMaxWidth().testTag("calculator-error"),
+                        fontSize = 14.sp,
                         color = colors.error,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        softWrap = true
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(4.dp))
             }
 
             // CLAVIER
@@ -1076,12 +1098,15 @@ fun CalculatorScreen(
                                 } else {
                                     displayKey
                                 }
+                                val interactionSource = remember(key) { MutableInteractionSource() }
+                                val pressed by interactionSource.collectIsPressedAsState()
 
                                 Surface(
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(59.dp)
-                                        .clickable(enabled = isEnabled) { onKey(actionKey) }
+                                        .offset(y = if (pressed) 2.dp else 0.dp)
+                                        .clickable(interactionSource = interactionSource, indication = null, enabled = isEnabled) { onKey(actionKey) }
                                         .testTag(if (isShift) {
                                             "calculator-shift-${if (isShiftActive) "active" else "inactive"}"
                                         } else {
@@ -1089,11 +1114,10 @@ fun CalculatorScreen(
                                         }),
                                     shape = RoundedCornerShape(22.dp),
                                     color = backgroundColor,
+                                    border = BorderStroke(1.dp, colors.outline.copy(alpha = if (pressed) 0.35f else 0.75f)),
                                     shadowElevation = when {
-                                        isShift && isShiftActive -> 1.dp
-                                        isShift -> 6.dp
-                                        isEquals -> 3.dp
-                                        else -> 0.dp
+                                        pressed || (isShift && isShiftActive) -> 1.dp
+                                        else -> 8.dp
                                     }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {

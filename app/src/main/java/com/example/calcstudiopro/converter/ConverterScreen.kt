@@ -90,6 +90,17 @@ fun ConverterScreen(
                 Text("$input ${from.symbol} = ${if (state.activeField == ActiveConverterField.SOURCE) state.targetText else state.sourceText} ${to.symbol}",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("converter-summary"))
             } else Text("Saisissez une valeur à convertir", style = MaterialTheme.typography.bodySmall)
+            val educationFrom = UnitCatalog.get(if (state.activeField == ActiveConverterField.SOURCE) state.sourceUnitId else state.targetUnitId)
+            val educationTo = UnitCatalog.get(if (state.activeField == ActiveConverterField.SOURCE) state.targetUnitId else state.sourceUnitId)
+            if (educationFrom != null && educationTo != null && educationFrom.id != educationTo.id) {
+                Card(Modifier.fillMaxWidth().testTag("converter-education")) {
+                    Text(
+                        ConversionEducation.explain(educationFrom, educationTo),
+                        Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
             Button(onClick = onSave, enabled = state.canSave, modifier = Modifier.fillMaxWidth().testTag("converter-save")) {
                 Text("Enregistrer dans l’historique")

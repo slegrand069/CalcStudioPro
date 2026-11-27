@@ -11,6 +11,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.calcstudiopro.history.domain.HistoryEntry
 import com.example.calcstudiopro.history.domain.HistoryModes
 import com.example.calcstudiopro.history.domain.HistoryValueTypes
+import com.example.calcstudiopro.history.domain.HistoryDatum
+import com.example.calcstudiopro.history.domain.HistoryStructuredData
+import com.example.calcstudiopro.history.domain.HistoryStructuredDataCodec
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -75,5 +78,36 @@ class HistoryScreenTest {
         assertEquals(false, wasCleared)
         composeRule.onNodeWithTag("history-clear-confirm").performClick()
         assertEquals(true, wasCleared)
+    }
+
+    @Test
+    fun structuredHistoryShowsOperationAndExpandableInputsAndResults() {
+        val data = HistoryStructuredData(
+            operation = "Géométrie · Triangle",
+            inputs = listOf(HistoryDatum("Côté a saisi", "3")),
+            results = listOf(HistoryDatum("Aire", "6", 6.0), HistoryDatum("Périmètre", "12", 12.0)),
+            details = listOf(HistoryDatum("Angle A", "90°"))
+        )
+        composeRule.setContent {
+            HistoryScreen(
+                state = HistoryUiState(entries = listOf(HistoryEntry(
+                    id = 77,
+                    sourceMode = HistoryModes.GEOMETRY,
+                    description = "Triangle rectangle",
+                    displayResult = "Aire : 6 · Périmètre : 12",
+                    reusableValue = null,
+                    reusableValueType = null,
+                    createdAtEpochMillis = 1,
+                    detailsJson = HistoryStructuredDataCodec.encode(data)
+                )), isLoading = false),
+                onOpenModeSelector = {}, onDelete = {}, onClear = {}, onReuseValue = {}
+            )
+        }
+        composeRule.onNodeWithText("Géométrie · Triangle").assertIsDisplayed()
+        composeRule.onNodeWithText("Aire : 6 · Périmètre : 12").assertIsDisplayed()
+        composeRule.onNodeWithTag("history-details-toggle-77").performClick()
+        composeRule.onNodeWithText("Côté a saisi").assertIsDisplayed()
+        composeRule.onNodeWithText("Périmètre").assertIsDisplayed()
+        composeRule.onNodeWithText("Angle A").assertIsDisplayed()
     }
 }

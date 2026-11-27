@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.example.calcstudiopro.history.domain.HistoryModes
 import com.example.calcstudiopro.history.domain.HistoryRepository
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
+import com.example.calcstudiopro.history.domain.HistoryDatum
+import com.example.calcstudiopro.history.domain.HistoryStructuredData
+import com.example.calcstudiopro.history.domain.HistoryValueTypes
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -87,10 +90,16 @@ class ConverterViewModel(private val history: HistoryRepository? = null) : ViewM
         val input = ConversionEngine.parse(inputText) ?: return
         val result = if (s.activeField == ActiveConverterField.SOURCE) value else value
         val display = ConversionFormatter.format(result)
-        val details = """{"version":1,"category":"${s.category.id}","sourceUnitId":"${from.id}","targetUnitId":"${to.id}","sourceValue":"$inputText","result":"$display"}"""
         history?.let { repo -> viewModelScope.launch { repo.add(NewHistoryEntry(
             sourceMode = HistoryModes.CONVERTER, description = "${inputText} ${from.symbol} → ${to.symbol}",
-            displayResult = "$display ${to.symbol}", reusableValue = null, reusableValueType = null, detailsJson = details
+            displayResult = "$display ${to.symbol}", reusableValue = result.takeIf(Double::isFinite)?.toString(),
+            reusableValueType = HistoryValueTypes.DECIMAL_DOUBLE,
+            structuredData = HistoryStructuredData(
+                operation = "Conversion · ${s.category.label}",
+                inputs = listOf(HistoryDatum("Valeur", "$inputText ${from.symbol}"), HistoryDatum("Unité cible", to.name)),
+                results = listOf(HistoryDatum("Résultat", "$display ${to.symbol}", result)),
+                details = listOf(HistoryDatum("Règle", ConversionEducation.explain(from, to)))
+            )
         )) } }
     }
     class Factory(private val history: HistoryRepository) : ViewModelProvider.Factory {

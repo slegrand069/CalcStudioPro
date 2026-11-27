@@ -9,7 +9,9 @@ data class HistoryEntry(
     val reusableValueType: String?,
     val createdAtEpochMillis: Long,
     val detailsJson: String? = null
-)
+) {
+    val structuredData: HistoryStructuredData? get() = HistoryStructuredDataCodec.decode(detailsJson)
+}
 
 data class NewHistoryEntry(
     val sourceMode: String,
@@ -18,7 +20,8 @@ data class NewHistoryEntry(
     val reusableValue: String?,
     val reusableValueType: String?,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
-    val detailsJson: String? = null
+    val detailsJson: String? = null,
+    val structuredData: HistoryStructuredData? = null
 )
 
 interface HistoryRepository {

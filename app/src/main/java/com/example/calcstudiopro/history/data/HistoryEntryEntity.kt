@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.example.calcstudiopro.history.domain.HistoryEntry
 import com.example.calcstudiopro.history.domain.NewHistoryEntry
+import com.example.calcstudiopro.history.domain.HistoryStructuredDataCodec
 
 @Entity(tableName = "history_entries")
 data class HistoryEntryEntity(
@@ -35,7 +36,7 @@ data class HistoryEntryEntity(
             reusableValue = entry.reusableValue,
             reusableValueType = entry.reusableValueType,
             createdAtEpochMillis = entry.createdAtEpochMillis,
-            detailsJson = entry.detailsJson
+            detailsJson = entry.structuredData?.let(HistoryStructuredDataCodec::encode) ?: entry.detailsJson
         )
     }
 }
