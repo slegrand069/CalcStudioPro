@@ -77,6 +77,13 @@ class FunctionValueTableAbscissaGeneratorTest {
         )
     }
 
+    @Test fun customValuesAcceptSpacesAsSeparatorsWithFrenchDecimalCommas() {
+        assertEquals(
+            listOf(-1.0, 2.5, 4.0, -0.25),
+            valid(FunctionValueTableGenerationMode.CustomValues("-1 2,5\t4\n-0,25")).values
+        )
+    }
+
     @Test fun customValuesRejectMalformedAndNonFiniteTokens() {
         assertEquals(FunctionValueTableValidationError.MalformedCustomValue(2, "oops"),
             invalid(FunctionValueTableGenerationMode.CustomValues("1; oops")).error)

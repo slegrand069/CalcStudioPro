@@ -102,7 +102,7 @@ object FunctionValueTableAbscissaGenerator {
         var cursor = 0
         while (cursor <= text.length) {
             val atEnd = cursor == text.length
-            val delimiter = !atEnd && (text[cursor] == ';' || text[cursor] == '\n' || text[cursor] == '\r')
+            val delimiter = !atEnd && (text[cursor] == ';' || text[cursor].isWhitespace())
             if (atEnd || delimiter) {
                 val token = text.substring(start, cursor).trim()
                 if (token.isNotEmpty()) {

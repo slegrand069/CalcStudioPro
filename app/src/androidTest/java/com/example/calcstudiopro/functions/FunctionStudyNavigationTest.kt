@@ -2,9 +2,11 @@ package com.example.calcstudiopro.functions
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.toArgb
@@ -28,6 +30,47 @@ class FunctionStudyNavigationTest {
         (1..6).forEach { index ->
             composeRule.onNodeWithTag("function-slot-f$index").assertIsDisplayed()
         }
+    }
+
+    @Test fun valueTableOpensFromA1ShowsXOnlyWithoutSelectionAndReturnsToA1() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-functions").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("functions-table").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("value-table-back").assertIsDisplayed()
+        val tableBackground = composeRule.onNodeWithTag("value-table-screen").captureToImage().toPixelMap()[2, 2]
+        assert(tableBackground.red < 0.15f && tableBackground.green < 0.18f && tableBackground.blue < 0.3f) {
+            "Value table screen must use its dark surface"
+        }
+        composeRule.onNodeWithTag("value-table-mode-step").assertIsDisplayed()
+        composeRule.onNodeWithTag("value-table-mode-count").assertIsDisplayed()
+        composeRule.onNodeWithTag("value-table-mode-custom").assertIsDisplayed()
+        (1..6).forEach { composeRule.onNodeWithTag("value-table-select-f$it").assertIsDisplayed() }
+        composeRule.onNodeWithTag("value-table-decimals-plus").assertIsDisplayed()
+        composeRule.onNodeWithTag("value-table-calculate").performClick()
+        composeRule.waitUntil(10_000) {
+            runCatching { composeRule.onNodeWithTag("value-table-summary").fetchSemanticsNode() }.isSuccess
+        }
+        composeRule.onNodeWithTag("value-table-summary").assertIsDisplayed()
+        composeRule.onNodeWithTag("value-table-copy").assertIsDisplayed().performClick()
+        assertEquals(0, composeRule.onAllNodesWithTag("value-table-open-settings").fetchSemanticsNodes().size)
+        composeRule.onNodeWithText("Tableau copié").assertIsDisplayed()
+        composeRule.onNodeWithTag("value-table-back").performClick()
+        composeRule.onNodeWithTag("functions-session-title").assertIsDisplayed()
+    }
+
+    @Test fun valueTableCustomModeAcceptsSpaceSeparatedFrenchDecimals() {
+        composeRule.onNodeWithTag("calculator-key-MODE").performClick()
+        composeRule.onNodeWithTag("mode-option-functions").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("functions-table").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("value-table-mode-custom").performClick()
+        composeRule.onNodeWithTag("value-table-custom-values").performTextReplacement("-1 2,5 4")
+        composeRule.onNodeWithTag("value-table-calculate").performClick()
+        composeRule.waitUntil(10_000) {
+            runCatching { composeRule.onNodeWithTag("value-table-summary").fetchSemanticsNode() }.isSuccess
+        }
+        composeRule.onNodeWithText("-1,0000", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("2,5000", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("4,0000", substring = true).assertIsDisplayed()
     }
 
     @Test fun tappingAFunctionRowOpensItsFullScreenEditor() {
@@ -60,6 +103,10 @@ class FunctionStudyNavigationTest {
         composeRule.onNodeWithTag("mode-option-functions").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("functions-graph").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("function-graph-production-canvas").assertIsDisplayed()
+        val graphBackground = composeRule.onNodeWithTag("function-graph-production-canvas").captureToImage().toPixelMap()[2, 2]
+        assert(graphBackground.red < 0.15f && graphBackground.green < 0.18f && graphBackground.blue < 0.3f) {
+            "Production graph canvas must use its dark surface"
+        }
 
         composeRule.onNodeWithTag("function-graph-angle-toggle").assertIsDisplayed().performClick()
         composeRule.onNodeWithText("DEG").assertIsDisplayed()

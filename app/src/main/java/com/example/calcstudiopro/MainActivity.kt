@@ -71,6 +71,7 @@ import com.example.calcstudiopro.functions.graph.FunctionGraphViewportMemory
 import com.example.calcstudiopro.functions.graph.ui.FunctionGraphRoute
 import com.example.calcstudiopro.functions.FunctionExpressionEditorRoute
 import com.example.calcstudiopro.functions.FunctionStudyManagementRoute
+import com.example.calcstudiopro.functions.table.ui.FunctionValueTableRoute
 import com.example.calcstudiopro.functions.domain.FunctionSlotId
 import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.statistics.graph.ui.GraphDemoScreen
@@ -205,15 +206,27 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navController.popBackStack() },
                                 onOpenStudies = { navController.navigate("functions/studies") },
                                 onOpenEditor = { slotId -> navController.navigate("functions/edit/${slotId.code}") },
-                                onOpenGraph = { navController.navigate("functions/graph") }
+                                onOpenGraph = { navController.navigate("functions/graph") },
+                                onOpenTable = { navController.navigate("functions/table") }
                             )
                         }
                         composable("functions/graph") {
-                            FunctionGraphRoute(
-                                studyViewModel = functionStudyViewModel,
-                                viewportMemory = functionGraphViewportMemory,
-                                onBack = { navController.popBackStack() }
-                            )
+                            CalcStudioProTheme(darkTheme = true) {
+                                FunctionGraphRoute(
+                                    studyViewModel = functionStudyViewModel,
+                                    viewportMemory = functionGraphViewportMemory,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
+                        }
+                        composable("functions/table") {
+                            CalcStudioProTheme(darkTheme = true) {
+                                FunctionValueTableRoute(
+                                    studyViewModel = functionStudyViewModel,
+                                    onBack = { navController.popBackStack() },
+                                    onOpenGraph = { navController.navigate("functions/graph") }
+                                )
+                            }
                         }
                         composable("functions/studies") {
                             FunctionStudyManagementRoute(

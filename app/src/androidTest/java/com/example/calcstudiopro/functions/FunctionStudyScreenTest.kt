@@ -55,7 +55,7 @@ class FunctionStudyScreenTest {
             composeRule.onNodeWithTag("function-eye-${slotId.code}").assertIsDisplayed()
         }
         composeRule.onNodeWithTag("functions-graph").assertIsDisplayed().assertIsEnabled()
-        composeRule.onNodeWithTag("functions-table").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithTag("functions-table").assertIsDisplayed().assertIsEnabled()
     }
 
     @Test fun listRendersTheValidatedExpressionInsteadOfItsDraft() {

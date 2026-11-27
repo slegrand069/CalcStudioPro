@@ -16,6 +16,7 @@ import com.example.calcstudiopro.functions.persistence.FunctionStudyStore
 import com.example.calcstudiopro.functions.persistence.NamedStudySummary
 import com.example.calcstudiopro.functions.persistence.StudyStoreError
 import com.example.calcstudiopro.functions.persistence.StudyStoreResult
+import com.example.calcstudiopro.functions.table.FunctionValueTableSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -97,6 +98,15 @@ class FunctionStudyViewModel(
     }
 
     fun updateDraft(slotId: FunctionSlotId, draft: String) = update { it.withDraft(slotId, draft) }
+
+    /** Persists the validated value-table configuration as part of the active study. */
+    fun updateValueTableSettings(settings: FunctionValueTableSettings): Boolean {
+        if (settings.validationError() != null) return false
+        val study = mutableState.value.study ?: return false
+        if (settings.selectedSlots.any { selected -> study.slot(selected).validatedExpression == null }) return false
+        saveStudy(study.withValueTableSettings(settings))
+        return mutableState.value.saveError == null
+    }
 
     /** Updates an explicit shared parameter without recompiling any validated expression. */
     fun setParameter(name: Char, value: Double): Boolean {

@@ -59,7 +59,8 @@ fun FunctionStudyRoute(
     onBack: () -> Unit,
     onOpenStudies: () -> Unit = {},
     onOpenEditor: (FunctionSlotId) -> Unit = {},
-    onOpenGraph: () -> Unit = {}
+    onOpenGraph: () -> Unit = {},
+    onOpenTable: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     FunctionStudyScreen(
@@ -69,7 +70,8 @@ fun FunctionStudyRoute(
         onChooseColor = viewModel::chooseColor,
         onToggleVisibility = viewModel::toggleVisibility,
         onOpenEditor = onOpenEditor,
-        onOpenGraph = onOpenGraph
+        onOpenGraph = onOpenGraph,
+        onOpenTable = onOpenTable
     )
 }
 
@@ -81,7 +83,8 @@ fun FunctionStudyScreen(
     onChooseColor: (FunctionSlotId, FunctionColor) -> Unit,
     onToggleVisibility: (FunctionSlotId) -> Unit,
     onOpenEditor: (FunctionSlotId) -> Unit = {},
-    onOpenGraph: () -> Unit = {}
+    onOpenGraph: () -> Unit = {},
+    onOpenTable: () -> Unit = {}
 ) {
     Scaffold { padding ->
         Column(
@@ -171,8 +174,8 @@ fun FunctionStudyScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) { Text("Graphe") }
                 OutlinedButton(
-                    onClick = {},
-                    enabled = false,
+                    onClick = onOpenTable,
+                    enabled = study != null,
                     modifier = Modifier.weight(1f).height(48.dp).testTag("functions-table"),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) { Text("Tableau") }
